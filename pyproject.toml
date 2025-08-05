@@ -19,6 +19,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
     "ty>=0.0.1a16",
+    "typer>=0.16.0",
+    "loguru>=0.7.3",
 ]
 
 [build-system]
