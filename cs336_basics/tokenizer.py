@@ -89,7 +89,8 @@ def train(
         for k, v in token_counts.items():
             if (ind := sublist_contains(k, best_pair)) != -1:
                 kv_append.append((k[:ind] + tuple([b"".join(best_pair)]) + k[ind + len(best_pair):], v))
-                logger.debug(f"{k} is to be deleted")
+                logger.info(f"append: {k} -> {k[:ind] + tuple([b''.join(best_pair)]) + k[ind + len(best_pair):]}")
+                k_dels.append(k)
         for k_del in k_dels:
             del token_counts[k_del]
         for k, v in kv_append:
@@ -97,7 +98,9 @@ def train(
 
         logger.info(f"{_vsize=}")
         logger.info(f"{merges=}")
-        logger.info(f"{token_counts=}")
+        logger.info(f"{len(token_counts)=}")
+        for k, v in token_counts.items():
+            logger.info(f"{k=}, {v=}")
         input()
 
 
@@ -106,7 +109,7 @@ def test():
     train(
         input_path="data/head_owt_valid.txt",
         vocab_size=300,
-        special_tokens=["<|endoftext|"],
+        special_tokens=["<|endoftext|>"],
     )
 
 
