@@ -21,6 +21,8 @@ dependencies = [
     "ty>=0.0.1a16",
     "typer>=0.16.0",
     "loguru>=0.7.3",
+    "pudb>=2025.1",
+    "py-spy>=0.4.1",
 ]
 
 [build-system]

@@ -41,7 +41,7 @@ def train(
         vocab_size: int,
         special_tokens: Optional[list[str]] = None,
 ) -> TrainResult:
-    special_tokens = special_tokens or ["<|endoftext|"]  # hard code
+    special_tokens = special_tokens or ["<|endoftext|>"]  # hard code
 
     # read corpus
     file: BytesIO = open(input_path, "rb")
