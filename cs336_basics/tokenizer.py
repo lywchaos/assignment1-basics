@@ -60,8 +60,8 @@ def init_vocab(special_tokens: list[str] | None = None) -> dict[int, bytes]:
     vocab = {}
     for i in range(256):
         vocab[i] = bytes([i])
-    for i, special_tokens in enumerate(special_tokens):
-        vocab[i + 256] = special_tokens.encode()
+    for i, special_token in enumerate(special_tokens):
+        vocab[i + 256] = special_token.encode()
     return vocab
 
 
