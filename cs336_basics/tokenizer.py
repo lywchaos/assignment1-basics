@@ -123,7 +123,11 @@ def train_bpe(
             for start, end in zip(boundaries[:-1], boundaries[1:]):
                 f.seek(start)
                 chunk = f.read(end - start).decode("utf-8", errors="ignore")
-                futures.append(executor.submit(worker, chunk))
+                # 移除特殊标记，避免它们被BPE分割
+                chunk_parts = split_by_special_token(chunk, special_tokens)
+                for part in chunk_parts:
+                    if part.strip():  # 跳过空字符串
+                        futures.append(executor.submit(worker, part))
             for future in as_completed(futures):
                 tokens.extend(future.result())
 
