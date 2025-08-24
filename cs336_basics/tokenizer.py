@@ -101,46 +101,132 @@ def worker(chunk: str) -> list[str]:
 
 def merge(
     best_pair: tuple[bytes, bytes],
-    token_bytes_counter: defaultdict,
+    token_bytes_counter: list[tuple[tuple[bytes, ...], int]],
     vocab: dict[int, bytes],
     merges: list[tuple[bytes, bytes]],
-) -> defaultdict:
-    """
-    执行一次 BPE 合并操作，更新词汇表和标记计数器
-
-    Args:
-        best_pair: 要合并的字节对
-        token_bytes_counter: 当前标记字节计数器
-        vocab: 词汇表
-
-    Returns:
-        更新后的标记字节计数器
-    """
+    pair_in_token_index: set[int],
+    byte_pair_counter: defaultdict[tuple[bytes, bytes], int],
+) -> None:
     # 将最佳字节对添加到合并列表
     merges.append(best_pair)
 
     # 将最佳字节对添加到词汇表
-    vocab[len(vocab)] = b"".join(best_pair)
+    best_pair_bytes = b"".join(best_pair)
+    vocab[len(vocab)] = best_pair_bytes
 
-    # 重构所有包含该字节对的标记
-    new_token_bytes_counter = defaultdict(int)
-    for token_bytes, count in token_bytes_counter.items():
-        i = 0
-        new_token = []
-        while i < len(token_bytes):  # 注意一个 token_bytes 中可能包含多个该字节对
-            if (
-                i < len(token_bytes) - 1
-                and (token_bytes[i], token_bytes[i + 1]) == best_pair
+    # 更新数据结构
+    for idx in pair_in_token_index[best_pair]:
+        token_bytes, count = token_bytes_counter[idx]
+        new_token_bytes = []
+
+        fast_ptr = 0
+        slow_ptr = 0
+        best_pair_in_new_token_bytes_idxs = []
+        while fast_ptr < len(token_bytes):
+            if (fast_ptr < len(token_bytes) - 1) and (
+                token_bytes[fast_ptr : fast_ptr + 2] == best_pair
             ):
-                new_token.append(b"".join(best_pair))
-                i += 2
+                new_token_bytes.append(best_pair_bytes)
+                fast_ptr += 2
+                best_pair_in_new_token_bytes_idxs.append(slow_ptr)
             else:
-                new_token.append(token_bytes[i])
-                i += 1
-        new_token_tuple = tuple(new_token)
-        new_token_bytes_counter[new_token_tuple] += count
+                new_token_bytes.append(token_bytes[fast_ptr])
+                fast_ptr += 1
+            slow_ptr += 1
 
-    return new_token_bytes_counter
+        for new_bp_index in best_pair_in_new_token_bytes_idxs:
+            byte_pair_counter[best_pair] -= count
+            if new_bp_index > 0:  # 左侧有重叠 pair
+                if new_token_bytes[new_bp_index - 1] == best_pair_bytes:
+                    byte_pair_counter[(best_pair[1], best_pair[0])] -= count
+                else:
+                    byte_pair_counter[
+                        (new_token_bytes[new_bp_index - 1], best_pair[0])
+                    ] -= count
+
+                pair_in_token_index[
+                    (new_token_bytes[new_bp_index - 1], new_token_bytes[new_bp_index])
+                ].add(idx)
+                byte_pair_counter[
+                    (new_token_bytes[new_bp_index - 1], new_token_bytes[new_bp_index])
+                ] += count
+
+            if new_bp_index < len(new_token_bytes) - 1:  # 右侧有重叠 pair
+                if new_token_bytes[new_bp_index + 1] == best_pair_bytes:
+                    byte_pair_counter[(best_pair[1], best_pair[0])] -= count
+                else:
+                    byte_pair_counter[
+                        (best_pair[1], new_token_bytes[new_bp_index + 1])
+                    ] -= count
+
+                pair_in_token_index[
+                    (new_token_bytes[new_bp_index], new_token_bytes[new_bp_index + 1])
+                ].add(idx)
+                byte_pair_counter[
+                    (new_token_bytes[new_bp_index], new_token_bytes[new_bp_index + 1])
+                ] += count
+
+        token_bytes_counter[idx] = (tuple(new_token_bytes), count)
+
+
+def test_merge():
+    """测试 merge 函数的功能"""
+    from collections import defaultdict
+
+    from rich import print
+
+    # 初始化测试数据
+    # 模拟三个token: "hello", "world", "help"
+    token_bytes_counter = [
+        ((b"h", b"e", b"l", b"l", b"o"), 2),  # "hello" 出现2次
+        ((b"w", b"o", b"r", b"l", b"d"), 1),  # "world" 出现1次
+        ((b"h", b"e", b"l", b"p"), 1),  # "help" 出现1次
+    ]
+
+    # 初始化词汇表 (前256个是字节)
+    vocab = {i: bytes([i]) for i in range(256)}
+    merges = []
+
+    # 构建 pair_in_token_index: 记录每个字节对出现在哪些token中
+    pair_in_token_index = defaultdict(set)
+    for i, (token_bytes, count) in enumerate(token_bytes_counter):
+        for j in range(len(token_bytes) - 1):
+            pair = (token_bytes[j], token_bytes[j + 1])
+            pair_in_token_index[pair].add(i)
+
+    # 构建 byte_pair_counter: 统计字节对频率
+    byte_pair_counter = defaultdict(int)
+    for token_bytes, count in token_bytes_counter:
+        for j in range(len(token_bytes) - 1):
+            pair = (token_bytes[j], token_bytes[j + 1])
+            byte_pair_counter[pair] += count
+
+    # 要合并的最佳字节对: (b'e', b'l') 出现3次 (hello中2次, help中1次)
+    best_pair = (b"e", b"l")
+
+    print("合并前:")
+    print("token_bytes_counter:", token_bytes_counter)
+    print("byte_pair_counter:", dict(byte_pair_counter))
+    print("pair_in_token_index:", dict(pair_in_token_index))
+    print("vocab size:", len(vocab))
+
+    # 执行合并
+    merge(
+        best_pair,
+        token_bytes_counter,
+        vocab,
+        merges,
+        pair_in_token_index,
+        byte_pair_counter,
+    )
+
+    print("\n合并后:")
+    print("token_bytes_counter:", token_bytes_counter)
+    print("byte_pair_counter:", dict(byte_pair_counter))
+    print("pair_in_token_index:", dict(pair_in_token_index))
+    print("vocab size:", len(vocab))
+    print("new vocab entry:", vocab[256])  # 新合并的token
+    print("merges:", merges)
 
 
 def train_bpe(
@@ -176,22 +262,33 @@ def train_bpe(
                 tokens.extend(future.result())
 
     token_bytes_counter = defaultdict(int)
-    for t in tokens:
+    pair_in_token_index = defaultdict(set)  # 用来记录 pair 出现在哪个 token 里
+    for i, t in enumerate(tokens):
         token_bytes_counter[tuple([bytes([i]) for i in t.encode()])] += 1
+    token_bytes_counter = [(k, v) for k, v in token_bytes_counter.items()]
+    for i, (token_bytes, count) in enumerate(token_bytes_counter):
+        for byte1, byte2 in zip(token_bytes, token_bytes[1:]):
+            pair_in_token_index[(byte1, byte2)].add(i)
+    # 统计字节对出现的次数
+    byte_pair_counter = defaultdict(int)
+    for token_bytes, count in token_bytes_counter:
+        for byte1, byte2 in zip(token_bytes, token_bytes[1:]):
+            byte_pair_counter[(byte1, byte2)] += count
 
     for _ in range(nr_merges):
-        # 统计字节对出现的次数
-        byte_pair_counter = defaultdict(int)
-        for token_bytes, count in token_bytes_counter.items():
-            for byte1, byte2 in zip(token_bytes, token_bytes[1:]):
-                byte_pair_counter[(byte1, byte2)] += count
-
         # 找到出现次数最多的字节对
         max_value = max(byte_pair_counter.values())
         best_pairs = [k for k, v in byte_pair_counter.items() if v == max_value]
         best_pair = max(best_pairs)
 
         # 合并，并更新各数据结构
-        token_bytes_counter = merge(best_pair, token_bytes_counter, vocab, merges)
+        merge(
+            best_pair,
+            token_bytes_counter,
+            vocab,
+            merges,
+            pair_in_token_index,
+            byte_pair_counter,
+        )
 
     return vocab, merges
