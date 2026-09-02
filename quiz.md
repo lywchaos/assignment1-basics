@@ -30,3 +30,36 @@ this is a teststring
 
 chezmoi on  main took 39s
 ```
+
+## P4.a What are some reasons to prefer training our tokenizer on UTF-8 encoded bytes, rather than UTF-16 or UTF-32? It may be helpful to compare the output of these encodings for various input strings
+
+因为 UTF-8 标准规定是最少可以只用 8 bit 也就是 1 个 byte 来表示一个 char 的。相应的 UTF-16 和 UTF-32 是分别最少要 2、4 个 byte 才行。显然 UTF-8 更省存储。
+
+## P4.b Consider the following (incorrect) function, which is intended to decode a UTF-8 byte string into a Unicode string. Why is this function incorrect? Provide an example of an input byte string that yields incorrect results
+
+example:
+
+```python
+def decode_utf8_bytes_to_str_wrong(bytestring: bytes):
+    return "".join([bytes([b]).decode("utf-8") for b in bytestring])
+```
+
+有种 not even wrong 的感觉。既然输入已经是 bytes 类型，直接 decode 就好了吧。
+
+## P4.c Give a two-byte sequence that does not decode to any Unicode character(s)
+
+思路是直接双层 for loop 拼两个 byte 找个 decode 报错的就行了吧。
+
+e.g.
+
+```python
+def solution():
+    for i in range(256):
+        for j in range(256):
+            seq = chr(i) + chr(j)
+            try:
+                seq.decode()
+            except:
+                print(f"Found seq [chr({i}), chr({j})]")
+                break
+```
