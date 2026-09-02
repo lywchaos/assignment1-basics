@@ -1,0 +1,23 @@
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      glob: "*.py"
+      run: uv run ruff check {staged_files}
+    format:
+      glob: "*.py"
+      run: uv run ruff format {staged_files}
+      stage_fixed: true
+    typecheck:
+      glob: "*.py"
+      run: uv run ty check --exclude tests/conftest.py --exclude cs336_basics/pretokenization_example.py
+
+pre-push:
+  parallel: true
+  commands:
+    lint:
+      run: uv run ruff check .
+    format:
+      run: uv run ruff format --check .
+    typecheck:
+      run: uv run ty check --exclude tests/conftest.py --exclude cs336_basics/pretokenization_example.py

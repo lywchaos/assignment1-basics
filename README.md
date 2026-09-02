@@ -30,6 +30,16 @@ Initially, all tests should fail with `NotImplementedError`s.
 To connect your implementation to the tests, complete the
 functions in [./tests/adapters.py](./tests/adapters.py).
 
+### Git hooks
+
+本项目使用 `lefthook` 管理 Git hooks。安装 `lefthook` 后，在仓库根目录执行：
+
+```sh
+lefthook install
+```
+
+`pre-commit` 会检查 staged Python 文件的 `ruff` lint、格式和 `ty` 类型；`pre-push` 会对整个仓库运行 `ruff` lint、格式检查和 `ty` 类型检查。格式检查会在提交前自动修复并重新加入暂存区。
+
 ### Download data
 Download the TinyStories data and a subsample of OpenWebText
 
