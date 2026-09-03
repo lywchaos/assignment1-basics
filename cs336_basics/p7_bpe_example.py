@@ -1,3 +1,5 @@
+from collections import Counter
+
 from rich import print
 
 CORPUS = """low low low low low lower lower widest widest widest newest newest newest newest newest newest"""
@@ -9,15 +11,9 @@ VOCAB = [
 
 
 def pretokenize(corpus: str) -> dict[tuple[bytes, ...], int]:
-    chunks = corpus.split(" ")
-    counter = {}
-    for c in chunks:
-        counter[c] = counter.setdefault(c, 0) + 1
-    ret = {}
-    for w, c in counter.items():
-        k = tuple([bytes([ord(i)]) for i in w])
-        ret[k] = c
-    return ret
+    # 先按 str 计数，再把去重后的 word 转成 token 元组（str 哈希更快，等价 word 只转一次）
+    counter = Counter(corpus.split(" "))
+    return {tuple(bytes([ord(ch)]) for ch in w): c for w, c in counter.items()}
 
 
 if __name__ == "__main__":
