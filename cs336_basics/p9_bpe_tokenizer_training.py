@@ -1,32 +1,42 @@
-import regex
 import os
+from collections import Counter, defaultdict
+from collections.abc import Iterable
+
+import regex
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+Word = tuple[bytes, ...]
+Pair = tuple[bytes, bytes]
+WordCounts = dict[Word, int]
 
 
 def prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
-    with open(input_path) as f:
-        corpus = f.read()
-    docs = regex.split("|".join([regex.escape(pat) for pat in special_tokens]), corpus)
-    return docs
+    with open(input_path, encoding="utf-8") as file:
+        corpus = file.read()
+
+    if not special_tokens:
+        return [corpus]
+    if any(token == "" for token in special_tokens):
+        raise ValueError("special_tokens must not contain empty strings")
+
+    pattern = "|".join(regex.escape(token) for token in sorted(special_tokens, key=len, reverse=True))
+    return regex.split(pattern, corpus)
 
 
-def pretokenize(doc: str, pat: str) -> dict[bytes, int]:
-    ret = {}
-    for m in regex.finditer(pat, doc):
-        text = m.group()
-        token = text.encode()
-        token_seq = tuple(bytes([b]) for b in token)
-        ret[token_seq] = ret.setdefault(token_seq, 0) + 1
-    return ret
+def pretokenize(doc: str, pat: str = PAT) -> WordCounts:
+    ret: Counter[Word] = Counter()
+    for match in regex.finditer(pat, doc):
+        token = match.group().encode("utf-8")
+        token_seq = tuple(bytes([byte]) for byte in token)
+        ret[token_seq] += 1
+    return dict(ret)
 
 
-def merge_counter(counters: list[dict]) -> dict:
-    ret = {}
-    for c in counters:
-        for k, v in c.items():
-            ret[k] = ret.setdefault(k, 0) + v
-    return ret
+def merge_counter(counters: Iterable[WordCounts]) -> WordCounts:
+    ret: Counter[Word] = Counter()
+    for counter in counters:
+        ret.update(counter)
+    return dict(ret)
 
 
 def init_vocab(special_tokens: list[str]) -> dict[int, bytes]:
@@ -37,59 +47,52 @@ def init_vocab(special_tokens: list[str]) -> dict[int, bytes]:
     return ret
 
 
-def build_new_seq(seq: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> tuple[bytes, ...]:
-    new_seq = []
+def merge_word(word: Word, pair: Pair) -> Word:
+    merged_word: list[bytes] = []
     i = 0
-    while i < len(seq):
-        if i < len(seq) - 1 and (seq[i], seq[i + 1]) == pair:
-            new_seq.append(pair[0] + pair[1])
+    while i < len(word):
+        if i + 1 < len(word) and (word[i], word[i + 1]) == pair:
+            merged_word.append(pair[0] + pair[1])
             i += 2
         else:
-            new_seq.append(seq[i])
+            merged_word.append(word[i])
             i += 1
-    return tuple(new_seq)
+    return tuple(merged_word)
 
 
-def apply_merge(
-    token_seq_counter: dict[tuple[bytes, ...], int], max_pair: tuple[bytes, bytes]
-) -> dict[tuple[bytes, ...], int]:
-    ret = {}
-    for k, v in token_seq_counter.items():
-        pairs = list(zip(k, k[1:]))
-        seq = k
-        if max_pair in pairs:
-            seq = build_new_seq(k, max_pair)
-        ret[seq] = ret.setdefault(seq, 0) + v
-    return ret
+def apply_merge(token_seq_counter: WordCounts, max_pair: Pair) -> WordCounts:
+    ret: defaultdict[Word, int] = defaultdict(int)
+    for word, count in token_seq_counter.items():
+        if max_pair in zip(word, word[1:]):
+            word = merge_word(word, max_pair)
+        ret[word] += count
+    return dict(ret)
 
 
 def train(
     input_path: str | os.PathLike, vocab_size: int, special_tokens: list[str]
-) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    docs = prepare_docs(input_path, special_tokens)
-    token_seq_counter = merge_counter([pretokenize(doc, PAT) for doc in docs])
-
+) -> tuple[dict[int, bytes], list[Pair]]:
     vocab = init_vocab(special_tokens)
-    merges = []
     len_init_vocab = len(vocab)
+    if vocab_size < len_init_vocab:
+        raise ValueError(f"vocab_size must be at least {len_init_vocab}")
+
+    docs = prepare_docs(input_path, special_tokens)
+    token_seq_counter = merge_counter(pretokenize(doc) for doc in docs)
+
+    merges: list[Pair] = []
     for _ in range(len_init_vocab, vocab_size):
-        # counter pair
-        pair_counter = {}
-        for k, v in token_seq_counter.items():
-            pairs = zip(k, k[1:])
-            for p in pairs:
-                pair_counter[p] = pair_counter.setdefault(p, 0) + v
+        pair_counter: defaultdict[Pair, int] = defaultdict(int)
+        for word, count in token_seq_counter.items():
+            for pair in zip(word, word[1:]):
+                pair_counter[pair] += count
 
-        # find max pair
-        max_count = max([v for k, v in pair_counter.items()])
-        max_pairs = [k for k, v in pair_counter.items() if v == max_count]
-        max_pair = max(max_pairs)
+        if not pair_counter:
+            break
+        max_pair = max(pair_counter.items(), key=lambda item: (item[1], item[0]))[0]
 
-        # update result
         vocab[len(vocab)] = max_pair[0] + max_pair[1]
         merges.append(max_pair)
-
-        # merge in original token_seq_counter
         token_seq_counter = apply_merge(token_seq_counter, max_pair)
 
     return vocab, merges

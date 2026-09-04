@@ -1,6 +1,6 @@
 # 卡 05 · `[迁移]` 「按目标数量循环」隐含假设资源够用：空 Counter 上取最大值会炸
 
-- **来源**：`cs336_basics/p7_bpe_example.py` 复盘；`cs336_basics/p9_bpe_tokenizer_training.py` 至今仍有此问题
+- **来源**：`cs336_basics/p7_bpe_example.py` 复盘；`cs336_basics/p9_bpe_tokenizer_training.py` 重构前也有此问题，现已用空计数器 `break` 修复
 - **标记**：`[迁移]` —— 玩具语料上实测要合并 12 次、`len(vocab)` 到 **269** 才耗尽 pair，
   而 example 写死 264（7 次合并），侥幸没触发
 

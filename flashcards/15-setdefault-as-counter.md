@@ -1,6 +1,6 @@
 # 卡 15 · `[风格]` `dict.setdefault` 当计数器：语义绕 + 实测占 25% 运行时间
 
-- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py`（第 20、27、81 行）review
+- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py`（重构前第 20、27、81 行）review
 - **标记**：`[风格]` —— 结果正确，但可读性和性能都有代价
 
 ## 背景

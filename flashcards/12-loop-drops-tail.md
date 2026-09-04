@@ -1,6 +1,6 @@
 # 卡 12 · `[必错]` 边扫边跳步的循环：`while i < len(seq) - 1` 会丢掉最后一个元素
 
-- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py` 的 `build_new_seq` 复盘
+- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py` 的 `build_new_seq` 复盘（修复后重命名为 `merge_word`）
 - **标记**：`[必错]` —— 静默丢数据，不报错
 
 ## 背景
@@ -9,7 +9,7 @@
 循环条件顺手写成了 `while i < len(seq) - 1`：
 
 ```python
-def build_new_seq(seq, pair):
+def merge_word(seq, pair):  # 原名 build_new_seq
     new_seq = []
     i = 0
     while i < len(seq) - 1:            # ← 病灶
@@ -25,8 +25,8 @@ def build_new_seq(seq, pair):
 ## 正面 —— 预测两个输出
 
 ```python
-build_new_seq((b'h', b'e', b'l', b'l', b'o'), (b'h', b'e'))
-build_new_seq((b'h', b'e', b'l', b'l', b'o'), (b'l', b'o'))
+merge_word((b'h', b'e', b'l', b'l', b'o'), (b'h', b'e'))
+merge_word((b'h', b'e', b'l', b'l', b'o'), (b'l', b'o'))
 ```
 
 ## 答案

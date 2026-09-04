@@ -18,15 +18,15 @@
 
 ## 正面
 
-`build_new_seq(seq, pair)` 是个**纯函数**：输入输出都是几个字节的 tuple，无 IO、无全局状态。
+`merge_word(word, pair)`（修复前名为 `build_new_seq`）是个**纯函数**：输入输出都是几个字节的 tuple，无 IO、无全局状态。
 写出三行断言，使其能同时覆盖上表中的三个 bug。
 
 ## 答案
 
 ```python
-assert build_new_seq((b'h',b'e',b'l',b'l',b'o'), (b'h',b'e')) == (b'he',b'l',b'l',b'o')
-assert build_new_seq((b'h',b'e',b'l',b'l',b'o'), (b'l',b'o')) == (b'h',b'e',b'l',b'lo')
-assert build_new_seq((b'a',b'b'),                (b'a',b'b')) == (b'ab',)
+assert merge_word((b'h',b'e',b'l',b'l',b'o'), (b'h',b'e')) == (b'he',b'l',b'l',b'o')
+assert merge_word((b'h',b'e',b'l',b'l',b'o'), (b'l',b'o')) == (b'h',b'e',b'l',b'lo')
+assert merge_word((b'a',b'b'),                (b'a',b'b')) == (b'ab',)
 ```
 
 三条断言的分工（**这是本卡的重点**）：
@@ -47,7 +47,7 @@ assert build_new_seq((b'a',b'b'),                (b'a',b'b')) == (b'ab',)
 - 有 `while` / 索引运算 / 变步长
 - 被主循环调用成千上万次（错一次，信号会被放大成天书）
 
-`build_new_seq` 三个条件全中，是全文件最该有单元断言的函数。
+`merge_word` 三个条件全中，是全文件最该有单元断言的函数。
 
 对照：改完先在 REPL 里验一个具体值（[卡 11](11-bytes-int-zero-fill.md)），
 成本几秒；靠端到端测试反推，成本是三轮往返。

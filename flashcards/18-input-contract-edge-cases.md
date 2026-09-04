@@ -1,6 +1,6 @@
 # 卡 18 · `[迁移]` 输入契约的四个漏洞：空列表 / 重叠前缀 / 隐式 encoding / 参数过小
 
-- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py` review，四条**实测**结果
+- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py` 重构前 review，四条**实测**结果（现已逐项修复）
 - **标记**：`[迁移]` —— 测试只喂 `special_tokens=["<|endoftext|>"]` + 合理 `vocab_size`，全部躲过
 
 ## 背景

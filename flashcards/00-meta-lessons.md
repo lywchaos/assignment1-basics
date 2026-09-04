@@ -36,7 +36,7 @@
 
 对策：每次修完必须跑一个**能区分各个版本的 oracle**，而不是看「不报错、输出看着像那么回事」。
 p7 的 oracle 是「第 1 步 merge 到底是 `(s,t)` 还是 `(e,s)`」；
-p9 的 oracle 是 `build_new_seq` 的[三行断言](14-pure-function-deserves-asserts.md)。
+p9 的 oracle 是 `merge_word`（修复前名为 `build_new_seq`）的[三行断言](14-pure-function-deserves-asserts.md)。
 
 判据补充：**同一个不变量不应该有两个守卫。** 如果有，其中一个必然多余，
 而多余的守卫往往不是无害，而是双重生效。
@@ -54,7 +54,7 @@ p9 的 oracle 是 `build_new_seq` 的[三行断言](14-pure-function-deserves-as
 ## 四、工作方法层面（p9 复盘的核心收获）
 
 1. **端到端测试不是调试器。** p9 连续三轮拿 `pytest tests/test_train_bpe.py` 当唯一信号，
-   每次得到 5000 行被截断的 bytes diff。而 `build_new_seq` 是纯函数，
+   每次得到 5000 行被截断的 bytes diff。而 `merge_word`（当时名为 `build_new_seq`）是纯函数，
    三行断言就能同时覆盖那三个 bug（[卡 14](14-pure-function-deserves-asserts.md)）。
    **挑「纯 + 边界密集 + 被调用上万次」的那个函数，给它自己的小测试。**
 2. **改完先在 REPL 验一个具体值。** `repr(bytes([104]))` 花两秒，

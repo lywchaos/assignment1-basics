@@ -5,7 +5,7 @@
 
 ## 背景
 
-`build_new_seq` 的签名从一开始就写对了：
+合并 word 的 helper（当时名为 `build_new_seq`，现名 `merge_word`）签名从一开始就写对了：
 
 ```python
 def build_new_seq(seq: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> tuple[bytes, ...]:
@@ -28,7 +28,7 @@ def merge_counter(counters: list[dict]) -> dict:            # ← 太松：裸 d
 ```
 
 `train` 从 `merge_counter` 拿到的是裸 `dict`，检查器只知道「key 是某种东西」，
-传给 `build_new_seq` 时无从比对。**一条链上只要有一环是 `dict` / `Any`，
+传给合并 helper 时无从比对。**一条链上只要有一环是 `dict` / `Any`，
 下游所有精确注解都失去守卫作用。**
 
 ## 正确做法 —— 给不变量起名字
@@ -40,7 +40,7 @@ WordCounts = dict[Word, int]
 
 def pretokenize(doc: str, pat: str = PAT) -> WordCounts: ...
 def merge_counter(counters: list[WordCounts]) -> WordCounts: ...
-def build_new_seq(seq: Word, pair: Pair) -> Word: ...
+def merge_word(word: Word, pair: Pair) -> Word: ...
 def train(...) -> tuple[dict[int, bytes], list[Pair]]: ...
 ```
 

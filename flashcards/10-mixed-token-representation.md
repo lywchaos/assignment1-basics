@@ -14,7 +14,7 @@ BPE 训练把每个 word 表示成「当前切分」的序列，每轮把出现�
 # pretokenize：起点
 token_seq = tuple(b for b in token)        # 元素是 int（0-255）
 
-# build_new_seq：合并产物
+# merge_word（当时名为 build_new_seq）：合并产物
 new_seq.append(pair)                       # 元素是 tuple[int, int]  ← 类型变了
 
 # train：消费
@@ -23,7 +23,7 @@ vocab[len(vocab)] = bytes([max_pair[0], max_pair[1]])
 
 ## 正面 —— 预测两件事
 
-1. `build_new_seq((104,101,108,108,111), (101,108))` 返回什么？
+1. 当时的 `build_new_seq((104,101,108,108,111), (101,108))` 返回什么？
 2. 主循环第几轮会抛 `TypeError: 'tuple' object cannot be interpreted as an integer`？
 
 ## 答案

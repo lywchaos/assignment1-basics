@@ -33,7 +33,7 @@ def train(
 
 6. ★ 扫描循环用 `while i < len(seq)`，最后一个元素**不会丢**？—— [卡 12](12-loop-drops-tail.md)
 7. ★ 而且**没有重复 append**（没把两种修法叠加）？—— [卡 13](13-two-fixes-stacked.md)
-8. ★ 写了三行断言验 `build_new_seq`，**在跑 pytest 之前**？—— [卡 14](14-pure-function-deserves-asserts.md)
+8. ★ 写了三行断言验 `merge_word`，**在跑 pytest 之前**？—— [卡 14](14-pure-function-deserves-asserts.md)
 
 **统计与选择**
 

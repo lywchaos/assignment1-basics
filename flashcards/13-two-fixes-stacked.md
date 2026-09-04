@@ -1,6 +1,6 @@
 # 卡 13 · `[陷阱]` 修 bug 时把两个互斥方案叠加
 
-- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py` 的 `build_new_seq` 复盘
+- **来源**：`cs336_basics/p9_bpe_tokenizer_training.py` 的 `build_new_seq` 复盘（修复后重命名为 `merge_word`）
 - **标记**：`[陷阱]` —— 修 [卡 12](12-loop-drops-tail.md) 时新引入的 bug
 
 ## 背景
@@ -16,7 +16,7 @@
 ## 正面 —— 预测两个输出
 
 ```python
-def build_new_seq(seq, pair):
+def merge_word(seq, pair):  # 原名 build_new_seq
     new_seq, i = [], 0
     while i < len(seq):                                          # 方案 A
         if i < len(seq) - 1 and (seq[i], seq[i + 1]) == pair:
@@ -27,8 +27,8 @@ def build_new_seq(seq, pair):
             new_seq.append(seq[-1])
     return tuple(new_seq)
 
-build_new_seq((b'a', b'b', b'c'), (b'a', b'b'))
-build_new_seq((b'h', b'e', b'l', b'l', b'o'), (b'l', b'o'))
+merge_word((b'a', b'b', b'c'), (b'a', b'b'))
+merge_word((b'h', b'e', b'l', b'l', b'o'), (b'l', b'o'))
 ```
 
 ## 答案
