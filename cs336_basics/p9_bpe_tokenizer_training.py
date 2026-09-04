@@ -16,7 +16,7 @@ def pretokenize(doc: str, pat: str) -> dict[bytes, int]:
     for m in regex.finditer(pat, doc):
         text = m.group()
         token = text.encode()
-        token_seq = tuple(b for b in token)
+        token_seq = tuple(bytes([b]) for b in token)
         ret[token_seq] = ret.setdefault(token_seq, 0) + 1
     return ret
 
@@ -40,10 +40,9 @@ def init_vocab(special_tokens: list[str]) -> dict[int, bytes]:
 def build_new_seq(seq: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> tuple[bytes, ...]:
     new_seq = []
     i = 0
-    while i < len(seq) - 1:
-        current_pair = (seq[i], seq[i + 1])
-        if current_pair == pair:
-            new_seq.append(pair)
+    while i < len(seq):
+        if i < len(seq) - 1 and (seq[i], seq[i + 1]) == pair:
+            new_seq.append(pair[0] + pair[1])
             i += 2
         else:
             new_seq.append(seq[i])
@@ -87,7 +86,7 @@ def train(
         max_pair = max(max_pairs)
 
         # update result
-        vocab[len(vocab)] = bytes([max_pair[0], max_pair[1]])
+        vocab[len(vocab)] = max_pair[0] + max_pair[1]
         merges.append(max_pair)
 
         # merge in original token_seq_counter
