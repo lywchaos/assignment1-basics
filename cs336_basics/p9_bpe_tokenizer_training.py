@@ -11,6 +11,7 @@ WordCounts = dict[Word, int]
 
 
 def prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
+    # TODO: Pre-tokenize special-token-aligned chunks in parallel instead of materializing the entire corpus and docs.
     with open(input_path, encoding="utf-8") as file:
         corpus = file.read()
 
@@ -82,6 +83,7 @@ def train(
 
     merges: list[Pair] = []
     for _ in range(len_init_vocab, vocab_size):
+        # TODO: Cache pair counts and pair-to-word IDs, then update only words affected by each merge.
         pair_counter: defaultdict[Pair, int] = defaultdict(int)
         for word, count in token_seq_counter.items():
             for pair in zip(word, word[1:]):

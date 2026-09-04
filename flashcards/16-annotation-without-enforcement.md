@@ -62,3 +62,4 @@ def train(...) -> tuple[dict[int, bytes], list[Pair]]: ...
 - [卡 10](10-mixed-token-representation.md) —— 被这个漏洞放过去的真 bug
 - [卡 07](07-vocab-vs-merges.md) —— 「类型写不出来 == 设计还没想清楚」
 - [卡 14](14-pure-function-deserves-asserts.md) —— 静态检查覆盖不到的地方，用运行时断言补
+- [卡 21](21-type-driven-domain-aliases.md) —— 类型别名如何把「数据形状」提升成「领域词汇」

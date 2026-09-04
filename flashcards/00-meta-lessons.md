@@ -1,6 +1,6 @@
 # 卡 00 · 元教训汇总
 
-两次复盘（`p7_bpe_example.py` → 卡 01-09，`p9_bpe_tokenizer_training.py` → 卡 10-20）
+两次复盘（`p7_bpe_example.py` → 卡 01-09，`p9_bpe_tokenizer_training.py` → 卡 10-21）
 的横向总结。这张不是「预测输出」型的卡，是复习时最后读的一张。
 
 ## 零号事实
@@ -21,7 +21,7 @@
 | **迭代器纪律** | `zip`/`map`/生成器：数容器层数，且只读一次。要读两次以上就别用迭代器 | [01](01-zip-in-container-membership.md) [02](02-iterator-consumed-by-in.md) |
 | **聚合纪律** | 任何计数/累加，问「key 会重复吗」；任何 max，问「平票怎么办」 | [03](03-dict-comprehension-collapses-keys.md) [04](04-tiebreak-three-stages.md) [15](15-setdefault-as-counter.md) |
 | **顺序纪律** | 先算全集 → 再排序/筛选 → **最后**截断。看到 `max`，先问它的候选集有几个元素 | [04](04-tiebreak-three-stages.md) [09](09-truncate-before-filter.md) |
-| **表示层纪律** | 一个序列的元素类型是**不变量**，从产生到消费不许变。str/bytes 边界只走 encode/decode | [06](06-ord-vs-encode.md) [07](07-vocab-vs-merges.md) [10](10-mixed-token-representation.md) [11](11-bytes-int-zero-fill.md) |
+| **表示层纪律** | 一个序列的元素类型是**不变量**，从产生到消费不许变；先给领域概念命名，再让函数边界维持它 | [06](06-ord-vs-encode.md) [07](07-vocab-vs-merges.md) [10](10-mixed-token-representation.md) [11](11-bytes-int-zero-fill.md) [21](21-type-driven-domain-aliases.md) |
 | **边界纪律** | 变步长循环先列出「退出时 i 可能落在哪些值」；循环要有两个出口（目标达成 + 资源耗尽） | [05](05-loop-assumes-resource-suffices.md) [12](12-loop-drops-tail.md) [13](13-two-fixes-stacked.md) |
 | **规模纪律** | 问「测试 fixture 和生产输入差几个数量级」。一次性 read、每轮全量重算，在 fixture 上永远是对的 | [17](17-read-whole-file-scale-wall.md) [18](18-input-contract-edge-cases.md) [19](19-quadratic-training-wall.md) |
 
