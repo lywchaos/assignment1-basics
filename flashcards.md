@@ -1,9 +1,12 @@
 # Flashcards
 
-来源：`cs336_basics/p7_bpe_example.py` 的一次复盘。7 张 bug 卡 + 1 张综合手写卡。
+来源：`cs336_basics/p7_bpe_example.py` 的一次复盘。8 张 bug 卡 + 1 张综合手写卡。
 
 用法：遮住「答案」，先在脑内**预测输出**（不许先跑），再用「自测」一行命令验证。
 vim 里可以 `:r !<自测命令>` 直接把结果读进来对照。
+
+**范围标记** —— 卡片标题带 `[迁移]` 的，在 p7 的玩具语料上**不触发**（已实测确认），
+只在把代码迁移到真语料 / `run_train_bpe` 时才会咬人。复习时可按需跳过。
 
 ---
 
@@ -67,7 +70,10 @@ python3 -c "t=(b'a',b'b',b'c'); p=zip(t,t[1:]); print((b'a',b'b') in p, (b'b',b'
 
 ---
 
-## 卡 3 · dict 推导式喂给 Counter，会把重复 key 折叠掉
+## 卡 3 · [迁移] dict 推导式喂给 Counter，会把重复 key 折叠掉
+
+> 本例不触发：实测全 12 轮、两条轨迹下，`low / lower / widest / newest` 及其所有中间态
+> **从未**出现 token 内重复相邻 pair，故与正确写法等价。
 
 **正面** — token 是 `(b'a', b'a', b'a')`、词频 5，预测 pair 计数：
 
@@ -103,38 +109,54 @@ python3 -c "from collections import Counter; t=(b'a',b'a',b'a'); c=Counter(); c.
 
 ---
 
-## 卡 4 · `most_common(1)` 的 tie-break 是插入顺序，不是字典序
+## 卡 4 · tie-break 的三段式阶梯：不知道 → 以为做了 → 真做了
 
-**正面** — `(b'e', b's')` 和 `(b's', b't')` 都出现 9 次。`most_common(1)` 给哪个？
-BPE 要的是哪个？
-
-**答案** — `most_common` 给 `(b'e', b's')`（先插入的）；BPE 规定取**字典序更大**的
-`(b's', b't')`。
-
-`Counter.most_common` 底层是稳定排序，只按 count 排，同 count 保持插入顺序 —— 也就是
-「碰巧由语料的遍历顺序决定」。这是 assignment 明确要求的 tie-break 规则，也是最容易
-「跑通了但答案不对」的一处。
-
-正确写法：
+**正面** — `(b'e', b's')` 和 `(b's', b't')` 都出现 9 次。BPE 规定取哪个？
+下面三种写法分别返回什么？
 
 ```python
-max_pair = max(pair_counter.items(), key=lambda kv: (kv[1], kv[0]))[0]
+# v1
+return counter.most_common(1)[0][0]
+
+# v2
+commons = counter.most_common(1)
+return max(p for p, _ in commons)
+
+# v3
+max_count = max(counter.values())
+return max(p for p, c in counter.items() if c == max_count)
 ```
 
-`bytes` 之间可以直接比大小（按字节逐位比），所以复合 key `(count, pair)` 天然可用。
+**答案** — BPE 要**字典序更大**的 `(b's', b't')`。v1 ❌、v2 ❌、v3 ✅。
+
+| 版本 | 病灶 | 返回 |
+|---|---|---|
+| v1 | 不知道要 tie-break。`most_common` 是稳定排序，同 count 按**插入顺序** —— 等于让语料遍历顺序决定答案 | `(b'e', b's')` |
+| v2 | **以为**自己 tie-break 了。`most_common(1)` 只返回 1 个元素，在单元素序列上取 `max` 是空操作 | `(b'e', b's')` |
+| v3 | 先求最高频次 → 筛出全部并列者 → 字典序取大 | `(b's', b't')` |
+
+**v2 才是最该记的那一格。** 代码里**出现了 `max`**，review 时眼睛会直接滑过去；
+静态检查也全 pass。病根一句话：**截断早于筛选**。
+
+判据 —— 看到 `max` / `min` / `sorted[0]`，先问：
+
+> **这个 max 的候选集里到底有几个元素？是谁把它变成这么多的？**
 
 **自测**
 
 ```sh
-python3 -c "from collections import Counter; c=Counter({(b'e',b's'):9,(b's',b't'):9}); print(c.most_common(1)[0][0], max(c, key=lambda p:(c[p],p)))"
+python3 -c "from collections import Counter; c=Counter({(b'e',b's'):9,(b's',b't'):9,(b'l',b'o'):7}); print('v1', c.most_common(1)[0][0]); print('v2', max(p for p,_ in c.most_common(1))); m=max(c.values()); print('v3', max(p for p,n in c.items() if n==m))"
 ```
 
-**手写要点** — 任何取 max/argmax 的地方，先问「平票怎么办」。如果规格书里写了平票规则，
-就不能用默认排序，必须把规则显式编码进 key。
+**手写要点** — 规格书里写了平票规则，就必须把规则**显式编码进 key 或筛选条件**，
+且**筛选必须早于截断**。这是本次复盘唯一真正影响本例输出的 bug。
 
 ---
 
-## 卡 5 · 空 Counter 上取 `most_common(1)[0]` 会 IndexError
+## 卡 5 · [迁移] 空 Counter 上取 `most_common(1)[0]` 会 IndexError
+
+> 本例不触发：实测要合并 12 次、`len(vocab)` 到 **269** 才耗尽 pair；example 写死 264（7 次）。
+> 顺带一提，改用 `max(...)` 之后错误类型会从 `IndexError` 变成 `ValueError: max() iterable argument is empty`。
 
 **正面** — 预测输出：
 
@@ -166,7 +188,9 @@ python3 -c "from collections import Counter; print(Counter().most_common(1)[0][0
 
 ---
 
-## 卡 6 · `bytes([ord(ch)])` 只对 Latin-1 有效
+## 卡 6 · [迁移] `bytes([ord(ch)])` 只对 Latin-1 有效
+
+> 本例不触发：语料全为 ASCII，码点恒 < 128，与 `encode("utf-8")` 逐字节拆等价。
 
 **正面** — 三个表达式，哪些成功、结果是什么？
 
@@ -200,7 +224,10 @@ python3 -c "print(bytes([ord('中')]))"
 
 ---
 
-## 卡 7 · vocab 存「合并后的 token」，merges 存「pair」
+## 卡 7 · [迁移] vocab 存「合并后的 token」，merges 存「pair」
+
+> 本例部分不触发：把 pair 塞进 vocab 是真 bug（已修）；但「merges 未记录」「`VOCAB[0]` 是 str」
+> 在本例里无害 —— merge 序列靠 `print(f"{max_pair=}")` 直接可读，那个 str 也从未参与 bytes 比较。
 
 **正面** — 选出 `max_pair = (b'e', b'st')` 之后，vocab 里该追加什么？merges 里该追加什么？
 两者的类型分别是什么？
@@ -238,15 +265,15 @@ CORPUS = "low low low low low lower lower widest widest widest newest newest new
 
 要求返回 `(vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]])`。
 
-**自查清单**（写完后逐条打勾，对应卡 1-7）
+**自查清单**（写完后逐条打勾。★ = 本语料上就会错，必须过；其余为迁移项）
 
-1. 合并分支真的进去过吗？（打一行 print 或断言 `token_counter` 每轮都在变）
-2. 有没有把 `zip` 结果复用第二次？
+1. ★ 合并分支真的进去过吗？（打一行 print 或断言 `token_counter` 每轮都在变）
+2. ★ 有没有把 `zip` 结果复用第二次？
 3. pair 计数是在 Counter 里累加，而非 dict 推导式里？
-4. tie-break 显式写了字典序更大优先？
+4. ★ tie-break 写了字典序优先，**且筛选早于截断**？
 5. `pair_counter` 为空时有 break？
 6. str → bytes 走的是 `encode("utf-8")`？
-7. vocab 存 bytes、merges 存 pair，两者都返回了？
+7. ★ vocab 存 bytes（不是 pair）；merges 存 pair 且有序返回？
 
 **验收 oracle**（与 handout p7 例子一致，7 次合并依次为）
 
@@ -270,13 +297,58 @@ CORPUS = "low low low low low lower lower widest widest widest newest newest new
 
 ---
 
+## 卡 9 · 通用反模式：截断早于筛选
+
+**正面** — 下面四段代码出自四个不同领域，错误是同一个。是什么？
+
+```python
+# 1. Counter top-k
+max(p for p, _ in counter.most_common(1))
+
+# 2. 排序 + 切片
+best = [x for x in sorted(items, key=score)[:1] if x.valid]
+
+# 3. SQL
+SELECT * FROM (SELECT * FROM t LIMIT 10) WHERE flag = 1 ORDER BY score DESC
+
+# 4. 检索 / 推荐
+hits = index.search(q, top_k=1)
+return [h for h in hits if h.score > threshold]
+```
+
+**答案** — 四个都把**截断放在了筛选/排序之前**，于是后面那个看似严谨的
+`max` / `if valid` / `ORDER BY` / 阈值过滤，作用在一个已经只剩 1 条的集合上 —— **退化成空操作**。
+
+这类 bug 的特征：
+
+- 代码里**看得见**正确的语义（`max`、`ORDER BY`、阈值），review 时眼睛直接滑过去
+- 静态检查、类型检查全 pass（类型完全正确，错的是集合基数）
+- 小数据上往往碰巧对（只有一个候选时，两种写法等价）
+
+**判据** — 每看到一个聚合/选取操作，把手指放在它的输入上问：
+
+> **这个集合里现在有几个元素？上一行是不是已经把它删小了？**
+
+口诀：**先算全集 → 再排序/筛选 → 最后才截断**。截断永远是流水线的最后一道工序。
+
+**手写要点** — `[:1]` / `LIMIT` / `top_k=1` / `most_common(1)` 这些写法出现时，
+先确认它后面没有任何还想对「多个候选」做事的代码。
+
+---
+
 ## 元教训
 
-这 7 个 bug 里，**没有一个**能被 `ruff check` 或 `ty check` 抓到（实测两者全 pass），
+这 8 个 bug 里，**没有一个**能被 `ruff check` 或 `ty check` 抓到（三个版本实测均全 pass），
 而且有 4 个（卡 1、3、4、6）属于**程序正常退出、输出看起来合理**的静默错误。
 
-可迁移的三条判据：
+可迁移的四条判据：
 
 - **迭代器纪律**：`zip`/`map`/生成器 —— 数容器层数，且只读一次。
 - **聚合纪律**：任何计数/累加，问「key 会重复吗」；任何 max，问「平票怎么办」。
+- **顺序纪律**（卡 9）：先算全集 → 再排序/筛选 → 最后截断。看到 `max`，先问它的候选集有几个元素。
 - **边界类型纪律**：str/bytes 边界只走 encode/decode；容器元素类型先写注解再写代码。
+
+最大的一条元教训在卡 4：**修 bug 时很容易把“不知道要做 X”换成“以为自己做了 X”**，
+后者更难发现——因为代码里已经有了 X 的字面痕迹。每次修完必须跑一个
+**能区分三个版本的 oracle**（本例就是第 1 步 merge 到底是 `(s,t)` 还是 `(e,s)`），
+而不是看“不报错、输出看着像那么回事”。
