@@ -2,6 +2,7 @@ from typing import BinaryIO
 import os
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import regex
 
@@ -71,8 +72,8 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-def prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
-    # TODO: Pre-tokenize special-token-aligned chunks in parallel instead of materializing the entire corpus and docs.
+def _prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
+    # A example impl for MVP test
     with open(input_path, encoding="utf-8") as file:
         corpus = file.read()
 
@@ -83,6 +84,21 @@ def prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> li
 
     pattern = "|".join(regex.escape(token) for token in sorted(special_tokens, key=len, reverse=True))
     return regex.split(pattern, corpus)
+
+
+def prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
+    with open(input_path, "rb") as f:
+        split_special_tokens = [t.encode() for t in special_tokens]
+        num_chunk = os.cpu_count() or 1
+        boundaries = find_chunk_boundaries(f, num_chunk, split_special_tokens)
+        split_pattern = "|".join(regex.escape(t) for t in special_tokens)
+
+        ret = []
+        for b, e in zip(boundaries, boundaries[1:]):
+            f.seek(b)
+            chunk = f.read(e - b)
+            ret.extend(regex.split(split_pattern, chunk.decode("utf-8")))
+        return ret
 
 
 def pretokenize(doc: str, pat: str = PAT) -> WordCounts:
@@ -140,7 +156,12 @@ def train(
         raise ValueError(f"vocab_size must be at least {len_init_vocab}")
 
     docs = prepare_docs(input_path, special_tokens)
-    token_seq_counter = merge_counter(pretokenize(doc) for doc in docs)
+    token_seq_counters = []
+    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+        futures = [executor.submit(pretokenize, doc) for doc in docs]
+        for future in as_completed(futures):
+            token_seq_counters.append(future.result())
+    token_seq_counter = merge_counter(token_seq_counters)
 
     merges: list[Pair] = []
     for _ in range(len_init_vocab, vocab_size):
