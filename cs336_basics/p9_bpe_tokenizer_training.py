@@ -1,8 +1,8 @@
-from typing import BinaryIO
 import os
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import BinaryIO
 
 import regex
 
@@ -21,24 +21,23 @@ def find_chunk_boundaries(
     Chunk the file into parts that can be counted independently.
     May return fewer chunks if the boundaries end up overlapping.
     """
-    for t in split_special_tokens:
-        assert isinstance(t, bytes), "Must represent special token as a bytestring"
+    if desired_num_chunks <= 0:
+        raise ValueError("desired_num_chunks must be positive")
+    if any(not isinstance(token, bytes) for token in split_special_tokens):
+        raise TypeError("split_special_tokens must contain only bytes")
+    if any(token == b"" for token in split_special_tokens):
+        raise ValueError("split_special_tokens must not contain empty strings")
 
-    pat = regex.compile(
-        b"|".join(
-            regex.escape(t)
-            for t in sorted(
-                split_special_tokens,
-                key=len,
-                reverse=True,
-            )
-        )
-    )
-
-    # Get total file size in bytes
+    # Get total file size in bytes.
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
+
+    # Without delimiters, arbitrary byte boundaries can split a UTF-8 character.
+    if not split_special_tokens:
+        return [0, file_size]
+
+    pat = regex.compile(b"|".join(regex.escape(token) for token in sorted(split_special_tokens, key=len, reverse=True)))
 
     chunk_size = file_size // desired_num_chunks
 
@@ -48,10 +47,14 @@ def find_chunk_boundaries(
     chunk_boundaries[-1] = file_size
 
     mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
+    overlap_size = max(len(token) for token in split_special_tokens) - 1
 
     for bi in range(1, len(chunk_boundaries) - 1):
         initial_position = chunk_boundaries[bi]
-        file.seek(initial_position)  # Start at boundary guess
+        scan_position = initial_position
+        carry = b""
+        file.seek(scan_position)  # Start at boundary guess
+
         while True:
             mini_chunk = file.read(mini_chunk_size)  # Read a mini chunk
 
@@ -60,45 +63,53 @@ def find_chunk_boundaries(
                 chunk_boundaries[bi] = file_size
                 break
 
-            # Find the special token in the mini chunk
-            match = pat.search(mini_chunk)
-            if match:
-                found_at = match.start()
-                chunk_boundaries[bi] = initial_position + found_at
-                break
-            initial_position += mini_chunk_size
+            search_chunk = carry + mini_chunk
+            search_origin = scan_position - len(carry)
+            for match in pat.finditer(search_chunk):
+                found_at = search_origin + match.start()
+                if found_at >= initial_position:
+                    chunk_boundaries[bi] = found_at
+                    break
+            else:
+                if overlap_size:
+                    carry = search_chunk[-overlap_size:]
+                scan_position += len(mini_chunk)
+                continue
+            break
 
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
 
-def _prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
-    # A example impl for MVP test
-    with open(input_path, encoding="utf-8") as file:
-        corpus = file.read()
-
+def _split_special_tokens(text: str, special_tokens: list[str]) -> list[str]:
     if not special_tokens:
-        return [corpus]
+        return [text]
     if any(token == "" for token in special_tokens):
         raise ValueError("special_tokens must not contain empty strings")
 
     pattern = "|".join(regex.escape(token) for token in sorted(special_tokens, key=len, reverse=True))
-    return regex.split(pattern, corpus)
+    return regex.split(pattern, text)
 
 
 def prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
-    with open(input_path, "rb") as f:
-        split_special_tokens = [t.encode() for t in special_tokens]
-        num_chunk = os.cpu_count() or 1
-        boundaries = find_chunk_boundaries(f, num_chunk, split_special_tokens)
-        split_pattern = "|".join(regex.escape(t) for t in special_tokens)
+    with open(input_path, encoding="utf-8") as file:
+        return _split_special_tokens(file.read(), special_tokens)
 
-        ret = []
-        for b, e in zip(boundaries, boundaries[1:]):
-            f.seek(b)
-            chunk = f.read(e - b)
-            ret.extend(regex.split(split_pattern, chunk.decode("utf-8")))
-        return ret
+
+def _pretokenize_chunk(
+    input_path: str | os.PathLike,
+    begin: int,
+    end: int,
+    special_tokens: list[str],
+) -> WordCounts:
+    with open(input_path, "rb") as file:
+        file.seek(begin)
+        chunk = file.read(end - begin)
+
+    counts: Counter[Word] = Counter()
+    for doc in _split_special_tokens(chunk.decode("utf-8"), special_tokens):
+        counts.update(pretokenize(doc))
+    return dict(counts)
 
 
 def pretokenize(doc: str, pat: str = PAT) -> WordCounts:
@@ -155,13 +166,23 @@ def train(
     if vocab_size < len_init_vocab:
         raise ValueError(f"vocab_size must be at least {len_init_vocab}")
 
-    docs = prepare_docs(input_path, special_tokens)
-    token_seq_counters = []
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        futures = [executor.submit(pretokenize, doc) for doc in docs]
-        for future in as_completed(futures):
-            token_seq_counters.append(future.result())
-    token_seq_counter = merge_counter(token_seq_counters)
+    num_workers = os.cpu_count() or 1
+    special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
+    with open(input_path, "rb") as file:
+        boundaries = find_chunk_boundaries(file, num_workers, special_tokens_bytes)
+
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = [
+            executor.submit(
+                _pretokenize_chunk,
+                input_path,
+                begin,
+                end,
+                special_tokens,
+            )
+            for begin, end in zip(boundaries, boundaries[1:])
+        ]
+        token_seq_counter = merge_counter(future.result() for future in as_completed(futures))
 
     merges: list[Pair] = []
     for _ in range(len_init_vocab, vocab_size):
