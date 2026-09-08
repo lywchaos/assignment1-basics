@@ -33,6 +33,8 @@ from pathlib import Path
 from typing import Any, cast
 
 import psutil
+from loguru import logger
+from tqdm.auto import tqdm
 
 from cs336_basics.p9_bpe_tokenizer_training import train
 
@@ -47,6 +49,7 @@ WORKLOG_FILENAME = "worklog.json"
 PROFILE_FILENAME = "train.cprof"
 PROFILE_SUMMARY_FILENAME = "train.cprof.txt"
 PY_SPY_FILENAME = "train.py-spy.svg"
+TRAIN_LOG_FILENAME = "train.log"
 
 
 def _gpt2_bytes_to_unicode() -> dict[int, str]:
@@ -380,6 +383,32 @@ def _write_profile_artifacts(
     _atomic_write_text(summary_path, summary)
 
 
+def _tqdm_log_sink(message: Any) -> None:
+    tqdm.write(str(message), end="", file=sys.stderr)
+
+
+def _configure_logging(log_path: Path, show_progress: bool) -> None:
+    logger.remove()
+    console_sink = _tqdm_log_sink if show_progress else sys.stderr
+    logger.add(
+        console_sink,
+        format="{time:HH:mm:ss} | {level: <8} | {message}",
+        level="INFO",
+        colorize=False,
+    )
+    logger.add(
+        log_path,
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {message}",
+        level="INFO",
+        encoding="utf-8",
+        mode="w",
+    )
+
+
+def _log_train_status(message: str) -> None:
+    logger.info(message)
+
+
 def _run_train(
     input_path: Path,
     vocab_size: int,
@@ -387,9 +416,16 @@ def _run_train(
     profile_mode: str,
     profile_path: Path | None,
     profile_summary_path: Path | None,
+    show_progress: bool,
 ) -> tuple[dict[int, bytes], list[Merge]]:
     if profile_mode == "none":
-        return train(input_path, vocab_size, special_tokens)
+        return train(
+            input_path,
+            vocab_size,
+            special_tokens,
+            show_progress=show_progress,
+            status_callback=_log_train_status,
+        )
     if profile_mode != "cprofile":
         raise ValueError(f"unsupported profile mode: {profile_mode!r}")
     if profile_path is None or profile_summary_path is None:
@@ -398,10 +434,17 @@ def _run_train(
     profiler = cProfile.Profile()
     profiler.enable()
     try:
-        return train(input_path, vocab_size, special_tokens)
+        return train(
+            input_path,
+            vocab_size,
+            special_tokens,
+            show_progress=show_progress,
+            status_callback=_log_train_status,
+        )
     finally:
         profiler.disable()
         _write_profile_artifacts(profiler, profile_path, profile_summary_path)
+        logger.info("cProfile artifacts written: {} and {}", profile_path, profile_summary_path)
 
 
 def _recommended_py_spy_command(
@@ -451,6 +494,7 @@ def train_tinystories(
     hash_input: bool = False,
     memory_sample_interval: float = 0.25,
     max_documents: int | None = None,
+    show_progress: bool = True,
 ) -> dict[str, Any]:
     """Train the tokenizer and return the worklog dictionary."""
     if vocab_size <= 0:
@@ -465,6 +509,8 @@ def train_tinystories(
     output_dir_arg = Path(output_dir).expanduser()
     output_dir_arg.mkdir(parents=True, exist_ok=True)
     output_dir_resolved = output_dir_arg.resolve()
+    log_path = output_dir_resolved / TRAIN_LOG_FILENAME
+    _configure_logging(log_path, show_progress)
 
     special_tokens_list = list(special_tokens)
     document_delimiter = "<|endoftext|>"
@@ -482,11 +528,23 @@ def train_tinystories(
     profile_summary_path = output_dir_resolved / PROFILE_SUMMARY_FILENAME if profile_mode == "cprofile" else None
     training_input_path = input_path_resolved
     run_started = time.perf_counter()
+    logger.info(
+        "Starting BPE tokenizer training | input={} | target vocabulary={} | special tokens={}",
+        input_path_resolved,
+        vocab_size,
+        special_tokens_list,
+    )
+    logger.info("Detailed log: {}", log_path)
+    if show_progress:
+        logger.info("Progress display enabled; stages will update below")
+    else:
+        logger.info("Progress display disabled")
     started_at = _utc_timestamp()
     artifact_paths: dict[str, str] = {
         "vocab": str(vocab_path),
         "merges": str(merges_path),
         "worklog": str(worklog_path),
+        "log": str(log_path),
     }
     if subset_path is not None:
         artifact_paths["input_subset"] = str(subset_path)
@@ -573,6 +631,7 @@ def train_tinystories(
             input_log["source_modified_at"] = datetime.fromtimestamp(source_stat.st_mtime, UTC).isoformat(
                 timespec="seconds"
             )
+            logger.info("Input ready: {:.2f} GiB", source_stat.st_size / 2**30)
             timings["input_metadata"] = time.perf_counter() - setup_started
 
             if max_documents is not None:
@@ -587,6 +646,12 @@ def train_tinystories(
                 )
                 training_input_path = subset_path
                 cast(dict[str, Any], input_log["downsampling"]).update(downsampling)
+                logger.info(
+                    "Downsampling complete: copied {} documents ({} bytes) to {}",
+                    downsampling["documents_copied"],
+                    downsampling["bytes_written"],
+                    subset_path,
+                )
                 timings["downsampling"] = time.perf_counter() - downsampling_started
 
             training_stat = training_input_path.stat()
@@ -596,19 +661,23 @@ def train_tinystories(
             input_log["training_modified_at"] = datetime.fromtimestamp(training_stat.st_mtime, UTC).isoformat(
                 timespec="seconds"
             )
+            logger.info("Training input: {} ({:.2f} GiB)", training_input_path, training_stat.st_size / 2**30)
 
             if hash_input:
+                logger.info("Computing SHA-256 fingerprint for the training input")
                 hash_started = time.perf_counter()
                 input_log["source_sha256"] = _sha256_file(input_path_resolved)
                 if training_input_path == input_path_resolved:
                     input_log["training_sha256"] = input_log["source_sha256"]
                 else:
                     input_log["training_sha256"] = _sha256_file(training_input_path)
+                logger.info("Training input SHA-256: {}", input_log["training_sha256"])
                 timings["input_sha256"] = time.perf_counter() - hash_started
 
             worklog["phase"] = "training"
             worklog["timings_seconds"] = timings
             _atomic_write_json(worklog_path, worklog)
+            logger.info("Starting tokenizer training; this may take a while")
             train_started = time.perf_counter()
             vocab, merges = _run_train(
                 training_input_path,
@@ -617,16 +686,25 @@ def train_tinystories(
                 profile_mode,
                 profile_path,
                 profile_summary_path,
+                show_progress,
             )
             timings["training"] = time.perf_counter() - train_started
             worklog["training"]["vocab_size_actual"] = len(vocab)
             worklog["training"]["merge_count"] = len(merges)
+            logger.info(
+                "Tokenizer training finished in {:.1f}s: {} merges, vocabulary size {}",
+                timings["training"],
+                len(merges),
+                len(vocab),
+            )
 
             worklog["phase"] = "serialization"
+            logger.info("Serializing vocabulary and merge artifacts")
             serialization_started = time.perf_counter()
             serialize_vocab(vocab, vocab_path)
             serialize_merges(merges, merges_path)
             timings["serialization"] = time.perf_counter() - serialization_started
+            logger.info("Tokenizer artifacts written to {}", output_dir_resolved)
             serialization_log["vocab_size_bytes"] = vocab_path.stat().st_size
             serialization_log["merges_size_bytes"] = merges_path.stat().st_size
 
@@ -636,15 +714,23 @@ def train_tinystories(
                 "note": "Token length is measured in raw bytes; gpt2_text is the serialized display form.",
             }
             timings["analysis"] = time.perf_counter() - analysis_started
+            logger.info(
+                "Longest token: {} bytes ({} matching vocabulary entries)",
+                worklog["analysis"]["longest_token"]["byte_length"],
+                worklog["analysis"]["longest_token"]["count"],
+            )
             worklog["phase"] = "completed"
             worklog["status"] = "completed"
     except BaseException as error:
+        failed_phase = worklog["phase"]
         worklog["phase"] = "failed"
         worklog["status"] = "failed"
         worklog["error"] = {
             "type": type(error).__name__,
             "message": str(error),
+            "phase": failed_phase,
         }
+        logger.exception("Training failed during phase '{}': {}", failed_phase, error)
         raise
     finally:
         worklog["finished_at_utc"] = _utc_timestamp()
@@ -717,6 +803,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0.25,
         help="RSS sampling interval in seconds for the process tree.",
     )
+    parser.add_argument(
+        "--no-progress",
+        dest="show_progress",
+        action="store_false",
+        help="Disable tqdm progress bars while keeping log messages enabled.",
+    )
     return parser
 
 
@@ -735,21 +827,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             hash_input=args.hash_input,
             memory_sample_interval=args.memory_sample_interval,
             max_documents=args.max_documents,
+            show_progress=args.show_progress,
         )
     except Exception as error:
-        print(f"Training failed: {error}", file=sys.stderr)
+        logger.error("Training failed: {}", error)
         return 1
 
     resources = worklog["resources"]
     analysis = worklog["analysis"]
-    print(f"Training complete: {worklog['artifacts']['vocab']}")
-    print(f"Merges: {worklog['artifacts']['merges']}")
-    print(f"Worklog: {worklog['artifacts']['worklog']}")
-    print(f"Training wall time: {worklog['timings_seconds']['training']:.3f}s")
-    print(f"Peak process-tree RSS: {resources['peak_total_rss_gib']:.3f} GiB")
+    logger.success("Training complete")
+    logger.info("Vocabulary: {}", worklog["artifacts"]["vocab"])
+    logger.info("Merges: {}", worklog["artifacts"]["merges"])
+    logger.info("Worklog: {}", worklog["artifacts"]["worklog"])
+    logger.info("Run log: {}", worklog["artifacts"]["log"])
+    logger.info("Training wall time: {:.3f}s", worklog["timings_seconds"]["training"])
+    logger.info("Peak process-tree RSS: {:.3f} GiB", resources["peak_total_rss_gib"])
     if worklog["input"]["downsampling"]["enabled"]:
-        print(f"Training subset: {worklog['input']['training_path']}")
-    print(f"Longest token: {analysis['longest_token']['byte_length']} bytes")
+        logger.info("Training subset: {}", worklog["input"]["training_path"])
+    logger.info("Longest token: {} bytes", analysis["longest_token"]["byte_length"])
     return 0
 
 
