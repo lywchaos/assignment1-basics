@@ -146,6 +146,8 @@ def merge_word(word: Word, pair: Pair) -> tuple[Word, list[Pair]]:
             i += 2
 
             # find possible affected pairs left and right
+            # TODO(cache): Check left and right boundaries independently. The current elif chain
+            # overlaps when the matched pair starts at index 0 and ends at EOF (word == pair).
             if i - 2 != 0 and i != len(word):
                 left_pair = (word[i - 3], word[i - 2])
                 right_pair = (word[i - 1], word[i])
@@ -156,6 +158,8 @@ def merge_word(word: Word, pair: Pair) -> tuple[Word, list[Pair]]:
             elif i == len(word):
                 left_pair = (word[i - 3], word[i - 2])
                 affected_pairs.append(left_pair)
+        # TODO(cache): A neighbor-pair list is not sufficient for repeated or overlapping matches.
+        # Pair deltas must be counted per occurrence while preserving left-to-right merge behavior.
         else:
             merged_word.append(word[i])
             i += 1
@@ -169,18 +173,29 @@ def apply_merge(
     word_index: dict[int, Word],
     pair_to_word_ids: dict[Pair, list[int]],
 ) -> None:
+    # TODO(cache): Use a set for the reverse index. A list repeats the same word ID when a pair
+    # occurs multiple times in one word, so the same old word can be removed twice.
     affected_words_items = [(i, word_index[i]) for i in pair_to_word_ids[max_pair]]
 
+    # TODO(cache): Keep pair_to_word_ids synchronized here: remove old memberships and add
+    # memberships for every pair in each new word. Updating word_index alone leaves stale entries.
     for i, word in affected_words_items:
+        # TODO(cache): Save the old frequency before mutating token_seq_counter, and aggregate
+        # into an existing new_word instead of overwriting its frequency.
         new_word, affected_pairs = merge_word(word, max_pair)
         token_seq_counter[new_word] = token_seq_counter[word]
         word_index[i] = new_word
 
+        # TODO(cache): Maintain the invariant pair_counter == pair counts of the current
+        # token_seq_counter. Subtract every old-word pair occurrence and add every new-word
+        # pair occurrence; affected_pairs only covers selected neighbors and no new pairs.
         for p in affected_pairs:
             pair_counter[p] -= token_seq_counter[word]
 
         del token_seq_counter[word]
 
+    # TODO(cache): Remove zero-count pairs instead of only deleting max_pair. Otherwise stale
+    # entries can remain and be selected by max() after later updates.
     del pair_counter[max_pair]
 
 
@@ -216,12 +231,16 @@ def train(
     word_index: defaultdict[int, Word] = defaultdict(Word)
     pair_to_word_ids: defaultdict[Pair, list[int]] = defaultdict(list[int])
 
+    # TODO(cache): The pair count needs occurrence multiplicity, while the reverse index only
+    # needs word membership. Keep these meanings separate, preferably with set[Word] or set[int].
     for i, (word, count) in enumerate(token_seq_counter.items()):
         word_index[i] = word
         for pair in zip(word, word[1:]):
             pair_counter[pair] += count
             pair_to_word_ids[pair].append(i)
 
+    # TODO(cache): An empty pair counter is a valid terminal corpus state. Break the merge loop
+    # and return the current vocab/merges instead of raising.
     if not pair_counter:
         raise ValueError("No pair_counter")
 
