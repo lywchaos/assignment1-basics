@@ -1,6 +1,6 @@
 # 卡 00 · 元教训汇总
 
-两次复盘（`p7_bpe_example.py` → 卡 01-09，`p9_bpe_tokenizer_training.py` → 卡 10-21）
+两次复盘（`p7_bpe_example.py` → 卡 01-09，`p9_bpe_tokenizer_training.py` → 卡 10-22）
 的横向总结。这张不是「预测输出」型的卡，是复习时最后读的一张。
 
 ## 零号事实
@@ -14,7 +14,7 @@
 推论：**静态检查是地板，不是天花板。** 它的沉默不构成任何正确性证据 ——
 尤其当注解本身太松时（[卡 16](16-annotation-without-enforcement.md)）。
 
-## 一、六条可迁移判据
+## 一、七条可迁移判据
 
 | 纪律 | 判据 | 相关卡 |
 |---|---|---|
@@ -24,6 +24,7 @@
 | **表示层纪律** | 一个序列的元素类型是**不变量**，从产生到消费不许变；先给领域概念命名，再让函数边界维持它 | [06](06-ord-vs-encode.md) [07](07-vocab-vs-merges.md) [10](10-mixed-token-representation.md) [11](11-bytes-int-zero-fill.md) [21](21-type-driven-domain-aliases.md) |
 | **边界纪律** | 变步长循环先列出「退出时 i 可能落在哪些值」；循环要有两个出口（目标达成 + 资源耗尽） | [05](05-loop-assumes-resource-suffices.md) [12](12-loop-drops-tail.md) [13](13-two-fixes-stacked.md) |
 | **规模纪律** | 问「测试 fixture 和生产输入差几个数量级」。一次性 read、每轮全量重算，在 fixture 上永远是对的 | [17](17-read-whole-file-scale-wall.md) [18](18-input-contract-edge-cases.md) [19](19-quadratic-training-wall.md) |
+| **增量纪律** | 先区分 source of truth 与 derived cache；按未来查询建立反向索引；先做 affected-object 级更新，再考虑 occurrence-level delta | [19](19-quadratic-training-wall.md) [22](22-incremental-cache-convergence.md) |
 
 ## 二、最大的一条：修 bug 时最容易造出「更难发现的 bug」
 
@@ -62,3 +63,4 @@ p9 的 oracle 是 `merge_word`（修复前名为 `build_new_seq`）的[三行断
 3. **关键的字符级片段，复制粘贴优于手打。** `bytes([b])` 的方括号就是手抄时掉的。
 4. **注解和实现打架时，注解通常是对的那个** —— 它记录意图，实现是手滑处
    （[卡 16](16-annotation-without-enforcement.md)）。
+5. **优化先做可证明正确的中间版本。** 保留 naive oracle，写 cache invariant，先定位 affected objects，再降低到 occurrence-level update；不要把多个未验证的优化同时带进实现（[卡 22](22-incremental-cache-convergence.md)）。

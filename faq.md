@@ -94,3 +94,77 @@ f = BytesIO(b"some data")
 - 空 token 列表和空 token 单独处理
 
 如果不需要 regex，也可以对每个 token 使用 `bytes.find()`，再取最早的非负位置；这种方式天然是字面量搜索，不需要 escape。
+
+<!-- pi-faq-record: source=session-mine -->
+## p9/p10 tokenizer 实验：序列化、worklog 与 MVP 下采样
+
+### 问题
+
+讲义要求把 TinyStories / OpenWebText 的 tokenizer 训练结果序列化到磁盘，但没有指定一个新的专有格式。如何选择格式，并如何记录耗时、内存和 profiling 信息？
+
+### 结论
+
+- 讲义真正固定的是后续 `Tokenizer.from_files(vocab_filepath, merges_filepath, ...)` 的输入契约：`vocab` 是 `dict[int, bytes]`，`merges` 是有序的 `list[tuple[bytes, bytes]]`。
+- 可以采用 GPT-2 byte-level BPE 的可读文本格式：`vocab.json` 保存 `byte-to-unicode string -> token_id`，`merges.txt` 每行保存一个编码后的 pair，按生成顺序排列。
+- 本仓库的 loader 会把每一行按两个字段解析，因此 `merges.txt` 不写 `#version: 0.2` header；格式选择应服从实际 loader，而不是只看外部库的惯例。
+- `worklog.json` 与 tokenizer 格式分离，记录输入路径 / 大小 / 可选 SHA-256、配置、git / Python 环境、各阶段耗时、parent + worker RSS 峰值、最长 token，以及 profile 文件路径。
+- `cProfile` 主要覆盖主进程；训练使用 `ProcessPoolExecutor` 时，主进程 profile 可能把 worker 等待时间显示为进程池 shutdown。要观察完整进程树，应使用 `py-spy --subprocesses`。
+
+### MVP 下采样
+
+为了快速验证，可以按已有 `<|endoftext|>` delimiter 流式复制前 N 个完整文档到 subset，再调用同一个 `train(...)`。默认不启用下采样；启用时不截断文档中间、不合成 delimiter、不注入额外 special token，并把 subset 路径和复制数量写进 worklog。
+
+这类 MVP 的目标是保持训练假设不变，只减少样本规模。下采样参数应该改变输入数据量，而不是改变 tokenizer 的 special-token 定义、训练代码路径或 merge 规则。
+
+<!-- pi-faq-record: source=session-mine -->
+## 增量 cache 优化：先定位受影响对象，再维护派生状态
+
+### 问题
+
+每轮 BPE merge 都重新构建 `pair_counter`，观察到 merge 只影响包含 selected pair 的 word 后，如何把这个性质变成不容易错的第一版？
+
+### 结论
+
+先区分 source of truth 和 derived cache：
+
+```text
+token_seq_counter: 当前 Word -> 频次       # source of truth
+pair_counts[pair]: 全局 pair occurrence 数  # derived cache
+pair_to_words[pair]: 包含 pair 的 Word 集合 # derived reverse index
+```
+
+维护的核心不变量是：
+
+```text
+pair_counts == 从当前 token_seq_counter 全量重建的统计
+pair_to_words[p] == 当前包含 p 的所有 word
+```
+
+因此一次 merge 不需要手动推导左右邻居，而可以写成：
+
+```text
+cache' = cache - contribution(old_word) + contribution(new_word)
+```
+
+实现上先复制 `pair_to_words[max_pair]`，删除所有 old words 的 token / pair count / reverse-index membership，再聚合 new words，最后统一加入它们的贡献。`pair_counts` 要按 occurrence 计数；`pair_to_words` 只表示 membership，所以使用 `set`。当前阶段明确保留 `max(pair_counts.items(), ...)`，不引入 heap；先验证增量状态的正确性和收益。
+
+### 为什么不要一开始做 occurrence-level delta
+
+有以下结构时：
+
+```text
+(A, B) -> AB
+```
+
+虽然只改变局部邻居，但要正确维护位置级 delta，必须处理开头 / 结尾、重复 occurrence、`(A, A)`、重叠匹配以及 left-to-right 规则。第一版先使用 `pair -> affected words`，对 affected word 完整重算 pair，已经能消除无关 word 的全量扫描；只有 profiling 证明仍不够快时，才引入 occurrence position 或 linked list。
+
+### 推荐调试流程
+
+1. 保留 naive reference。
+2. 写出 source of truth、cache 和 invariant。
+3. 用小例子和边界用例验证 `merge_word`。
+4. 用 differential test 逐轮比较 `vocab` / `merges`。
+5. 用随机测试把 cache 与全量重建结果比较。
+6. 正确性稳定后再降低更新粒度。
+
+核心判据：如果一个函数同时计算新值、判断边界、修改多个 cache，通常应该拆成纯计算函数和对称的 remove / add helper。

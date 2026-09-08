@@ -52,6 +52,7 @@ vim 里可以 `:r !<自测命令>` 直接把结果读进来对照。
 | [19](19-quadratic-training-wall.md) | O(vocab_size × 语料)：每轮全量重算 pair 计数 | `[迁移]` | p9 |
 | [20](20-handwrite-train-bpe.md) | **手写卡**：`train_bpe` 真语料版（15 条清单） | `[手写]` | p9 |
 | [21](21-type-driven-domain-aliases.md) | 类型驱动编程：先给领域概念命名，再写函数 | `[流程]` | p9 |
+| [22](22-incremental-cache-convergence.md) | 从发现局部性到可维护的增量缓存 | `[流程]` | p9 |
 
 ## 按纪律分组
 
@@ -60,4 +61,4 @@ vim 里可以 `:r !<自测命令>` 直接把结果读进来对照。
 - **表示层 / 类型**：[06](06-ord-vs-encode.md) [07](07-vocab-vs-merges.md) [10](10-mixed-token-representation.md) [11](11-bytes-int-zero-fill.md) [16](16-annotation-without-enforcement.md) [21](21-type-driven-domain-aliases.md)
 - **循环边界**：[05](05-loop-assumes-resource-suffices.md) [12](12-loop-drops-tail.md) [13](13-two-fixes-stacked.md)
 - **规模 / 契约**：[17](17-read-whole-file-scale-wall.md) [18](18-input-contract-edge-cases.md) [19](19-quadratic-training-wall.md)
-- **工作方法**：[14](14-pure-function-deserves-asserts.md) [16](16-annotation-without-enforcement.md) [21](21-type-driven-domain-aliases.md) [00](00-meta-lessons.md)
+- **工作方法**：[14](14-pure-function-deserves-asserts.md) [16](16-annotation-without-enforcement.md) [21](21-type-driven-domain-aliases.md) [22](22-incremental-cache-convergence.md) [00](00-meta-lessons.md)
