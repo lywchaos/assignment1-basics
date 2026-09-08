@@ -137,11 +137,12 @@ def init_vocab(special_tokens: list[str]) -> dict[int, bytes]:
 
 
 def merge_word(word: Word, pair: Pair) -> Word:
+    """Merge every non-overlapping occurrence of pair from left to right."""
     merged_word: list[bytes] = []
     i = 0
     while i < len(word):
         if i + 1 < len(word) and (word[i], word[i + 1]) == pair:
-            merged_word.append(pair[0] + pair[1])
+            merged_word.append(word[i] + word[i + 1])
             i += 2
         else:
             merged_word.append(word[i])
@@ -149,13 +150,64 @@ def merge_word(word: Word, pair: Pair) -> Word:
     return tuple(merged_word)
 
 
-def apply_merge(token_seq_counter: WordCounts, max_pair: Pair) -> WordCounts:
-    ret: defaultdict[Word, int] = defaultdict(int)
-    for word, count in token_seq_counter.items():
-        if max_pair in zip(word, word[1:]):
-            word = merge_word(word, max_pair)
-        ret[word] += count
-    return dict(ret)
+def _count_word_pairs(word: Word) -> Counter[Pair]:
+    """Count pair occurrences within one current word."""
+    return Counter(zip(word, word[1:]))
+
+
+def _remove_word_from_cache(
+    word: Word,
+    count: int,
+    pair_counts: dict[Pair, int],
+    pair_to_words: dict[Pair, set[Word]],
+) -> None:
+    """Remove one word's weighted pair counts and reverse-index memberships."""
+    for pair, occurrences in _count_word_pairs(word).items():
+        updated_count = pair_counts[pair] - occurrences * count
+        if updated_count < 0:
+            raise RuntimeError(f"negative pair count for {pair!r}")
+        if updated_count == 0:
+            del pair_counts[pair]
+        else:
+            pair_counts[pair] = updated_count
+
+        words = pair_to_words[pair]
+        words.remove(word)
+        if not words:
+            del pair_to_words[pair]
+
+
+def _add_word_to_cache(
+    word: Word,
+    count: int,
+    pair_counts: dict[Pair, int],
+    pair_to_words: dict[Pair, set[Word]],
+) -> None:
+    """Add one word's weighted pair counts and reverse-index memberships."""
+    for pair, occurrences in _count_word_pairs(word).items():
+        pair_counts[pair] = pair_counts.get(pair, 0) + occurrences * count
+        pair_to_words.setdefault(pair, set()).add(word)
+
+
+def apply_merge(
+    token_seq_counter: WordCounts,
+    max_pair: Pair,
+    pair_counts: dict[Pair, int],
+    pair_to_words: dict[Pair, set[Word]],
+) -> None:
+    """Apply one merge while updating only words containing max_pair."""
+    affected_words = pair_to_words[max_pair].copy()
+    new_word_counts: Counter[Word] = Counter()
+
+    # Remove all old words before adding any new words, so collisions are aggregated cleanly.
+    for old_word in affected_words:
+        count = token_seq_counter.pop(old_word)
+        _remove_word_from_cache(old_word, count, pair_counts, pair_to_words)
+        new_word_counts[merge_word(old_word, max_pair)] += count
+
+    for new_word, count in new_word_counts.items():
+        token_seq_counter[new_word] = token_seq_counter.get(new_word, 0) + count
+        _add_word_to_cache(new_word, count, pair_counts, pair_to_words)
 
 
 def train(
@@ -185,19 +237,21 @@ def train(
         token_seq_counter = merge_counter(future.result() for future in as_completed(futures))
 
     merges: list[Pair] = []
-    for _ in range(len_init_vocab, vocab_size):
-        # TODO: Cache pair counts and pair-to-word IDs, then update only words affected by each merge.
-        pair_counter: defaultdict[Pair, int] = defaultdict(int)
-        for word, count in token_seq_counter.items():
-            for pair in zip(word, word[1:]):
-                pair_counter[pair] += count
 
-        if not pair_counter:
+    pair_counts: Counter[Pair] = Counter()
+    pair_to_words: defaultdict[Pair, set[Word]] = defaultdict(set)
+    for word, count in token_seq_counter.items():
+        _add_word_to_cache(word, count, pair_counts, pair_to_words)
+
+    for _ in range(len_init_vocab, vocab_size):
+        if not pair_counts:
             break
-        max_pair = max(pair_counter.items(), key=lambda item: (item[1], item[0]))[0]
+
+        max_pair = max(pair_counts.items(), key=lambda item: (item[1], item[0]))[0]
 
         vocab[len(vocab)] = max_pair[0] + max_pair[1]
         merges.append(max_pair)
-        token_seq_counter = apply_merge(token_seq_counter, max_pair)
+
+        apply_merge(token_seq_counter, max_pair, pair_counts, pair_to_words)
 
     return vocab, merges
