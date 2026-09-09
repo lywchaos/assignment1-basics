@@ -57,3 +57,19 @@ test-bpe *args:
 
 # 提交前的完整检查：静态检查 + 测试
 ci: check test
+
+train-bpe-tinystories:
+  uv run python -m cs336_basics.p9_train_bpe_tinystories \
+    --input-path data/TinyStoriesV2-GPT4-train.txt \
+    --output-dir artifacts/p9_tinystories \
+    --vocab-size 10000 \
+    --special-token '<|endoftext|>' \
+    --profile cprofile
+
+train-bpe-owt:
+  uv run python -m cs336_basics.p9_train_bpe_tinystories \
+    --input-path data/owt_train.txt \
+    --output-dir artifacts/p10_openwebtext \
+    --vocab-size 32000 \
+    --special-token '<|endoftext|>'
+

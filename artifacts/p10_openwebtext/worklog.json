@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "status": "running",
+  "phase": "training",
+  "started_at_utc": "2026-09-08T13:49:15.527Z",
+  "finished_at_utc": null,
+  "elapsed_seconds": null,
+  "input": {
+    "source_path": "data/owt_train.txt",
+    "source_resolved_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt",
+    "training_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt",
+    "training_resolved_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt",
+    "source_size_bytes": 11920511059,
+    "training_size_bytes": 11920511059,
+    "source_modified_at": "2026-09-02T09:08:08+00:00",
+    "training_modified_at": "2026-09-02T09:08:08+00:00",
+    "source_sha256": null,
+    "training_sha256": null,
+    "sha256_requested": false,
+    "downsampling": {
+      "enabled": false,
+      "max_documents": null,
+      "document_delimiter": null,
+      "subset_path": null,
+      "documents_copied": null,
+      "bytes_written": null
+    }
+  },
+  "training": {
+    "vocab_size_requested": 32000,
+    "special_tokens": [
+      "<|endoftext|>"
+    ],
+    "vocab_size_actual": null,
+    "merge_count": null
+  },
+  "serialization": {
+    "format": "GPT-2 byte-level BPE; assignment-compatible headerless merges.txt",
+    "vocab_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/vocab.json",
+    "merges_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/merges.txt",
+    "vocab_size_bytes": null,
+    "merges_size_bytes": null
+  },
+  "analysis": null,
+  "profiling": {
+    "requested": "none",
+    "cprofile_scope": null,
+    "artifacts": [],
+    "recommended_py_spy_command": "py-spy record --subprocesses --output /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/train.py-spy.svg -- uv run python -m cs336_basics.p9_train_bpe_tinystories --input-path /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt --output-dir /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext --vocab-size 32000 --profile none --special-token '<|endoftext|>'"
+  },
+  "environment": {
+    "python_version": "3.13.5",
+    "python_executable": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/.venv/bin/python3",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "cpu_count": 8,
+    "cs336_basics_version": "26.0.0",
+    "git": {
+      "available": true,
+      "commit": "a7de29a2a7d8211876d4dcdd4477b2a99b0ed394",
+      "dirty": true
+    }
+  },
+  "timings_seconds": {
+    "input_metadata": 0.00024383299751207232
+  },
+  "resources": null,
+  "artifacts": {
+    "vocab": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/vocab.json",
+    "merges": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/merges.txt",
+    "worklog": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/worklog.json",
+    "log": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/train.log"
+  },
+  "error": null
+}

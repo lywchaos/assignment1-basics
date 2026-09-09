@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "status": "completed",
+  "phase": "completed",
+  "started_at_utc": "2026-09-08T13:45:34.643Z",
+  "finished_at_utc": "2026-09-08T13:48:32.613Z",
+  "elapsed_seconds": 177.98690729099326,
+  "input": {
+    "source_path": "data/TinyStoriesV2-GPT4-train.txt",
+    "source_resolved_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt",
+    "training_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt",
+    "training_resolved_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt",
+    "source_size_bytes": 2227753162,
+    "training_size_bytes": 2227753162,
+    "source_modified_at": "2026-09-02T08:32:53+00:00",
+    "training_modified_at": "2026-09-02T08:32:53+00:00",
+    "source_sha256": null,
+    "training_sha256": null,
+    "sha256_requested": false,
+    "downsampling": {
+      "enabled": false,
+      "max_documents": null,
+      "document_delimiter": null,
+      "subset_path": null,
+      "documents_copied": null,
+      "bytes_written": null
+    }
+  },
+  "training": {
+    "vocab_size_requested": 10000,
+    "special_tokens": [
+      "<|endoftext|>"
+    ],
+    "vocab_size_actual": 10000,
+    "merge_count": 9743
+  },
+  "serialization": {
+    "format": "GPT-2 byte-level BPE; assignment-compatible headerless merges.txt",
+    "vocab_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/vocab.json",
+    "merges_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/merges.txt",
+    "vocab_size_bytes": 184328,
+    "merges_size_bytes": 84473
+  },
+  "analysis": {
+    "longest_token": {
+      "byte_length": 15,
+      "count": 3,
+      "tokens": [
+        {
+          "id": 7160,
+          "byte_length": 15,
+          "hex": "206163636f6d706c6973686d656e74",
+          "utf8_with_replacement": " accomplishment",
+          "gpt2_text": "Ġaccomplishment"
+        },
+        {
+          "id": 9143,
+          "byte_length": 15,
+          "hex": "206469736170706f696e746d656e74",
+          "utf8_with_replacement": " disappointment",
+          "gpt2_text": "Ġdisappointment"
+        },
+        {
+          "id": 9379,
+          "byte_length": 15,
+          "hex": "20726573706f6e736962696c697479",
+          "utf8_with_replacement": " responsibility",
+          "gpt2_text": "Ġresponsibility"
+        }
+      ]
+    },
+    "note": "Token length is measured in raw bytes; gpt2_text is the serialized display form."
+  },
+  "profiling": {
+    "requested": "cprofile",
+    "cprofile_scope": "main_process",
+    "artifacts": [
+      "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/train.cprof",
+      "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/train.cprof.txt"
+    ],
+    "recommended_py_spy_command": "py-spy record --subprocesses --output /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/train.py-spy.svg -- uv run python -m cs336_basics.p9_train_bpe_tinystories --input-path /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt --output-dir /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories --vocab-size 10000 --profile none --special-token '<|endoftext|>'"
+  },
+  "environment": {
+    "python_version": "3.13.5",
+    "python_executable": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/.venv/bin/python3",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "cpu_count": 8,
+    "cs336_basics_version": "26.0.0",
+    "git": {
+      "available": true,
+      "commit": "a7de29a2a7d8211876d4dcdd4477b2a99b0ed394",
+      "dirty": false
+    }
+  },
+  "timings_seconds": {
+    "input_metadata": 0.0002519999979995191,
+    "training": 177.8994315000018,
+    "serialization": 0.016523999976925552,
+    "analysis": 0.0012883750023320317
+  },
+  "resources": {
+    "sample_interval_seconds": 0.25,
+    "samples": 664,
+    "peak_parent_rss_bytes": 159809536,
+    "peak_child_rss_bytes": 5020401664,
+    "peak_total_rss_bytes": 5035098112,
+    "peak_total_rss_gib": 4.689,
+    "measurement": "sampled sum of RSS for the parent and descendants"
+  },
+  "artifacts": {
+    "vocab": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/vocab.json",
+    "merges": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/merges.txt",
+    "worklog": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/worklog.json",
+    "log": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p9_tinystories/train.log"
+  },
+  "error": null
+}

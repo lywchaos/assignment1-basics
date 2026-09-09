@@ -1,15 +1,22 @@
 import os
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import BinaryIO
 
 import regex
+from tqdm.auto import tqdm
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 Word = tuple[bytes, ...]
 Pair = tuple[bytes, bytes]
 WordCounts = dict[Word, int]
+StatusCallback = Callable[[str], None]
+
+
+def _report_status(callback: StatusCallback | None, message: str) -> None:
+    if callback is not None:
+        callback(message)
 
 
 def find_chunk_boundaries(
@@ -211,7 +218,12 @@ def apply_merge(
 
 
 def train(
-    input_path: str | os.PathLike, vocab_size: int, special_tokens: list[str]
+    input_path: str | os.PathLike,
+    vocab_size: int,
+    special_tokens: list[str],
+    *,
+    show_progress: bool = False,
+    status_callback: StatusCallback | None = None,
 ) -> tuple[dict[int, bytes], list[Pair]]:
     vocab = init_vocab(special_tokens)
     len_init_vocab = len(vocab)
@@ -219,10 +231,13 @@ def train(
         raise ValueError(f"vocab_size must be at least {len_init_vocab}")
 
     num_workers = os.cpu_count() or 1
+    _report_status(status_callback, f"Locating safe chunk boundaries for {num_workers} workers")
     special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
     with open(input_path, "rb") as file:
         boundaries = find_chunk_boundaries(file, num_workers, special_tokens_bytes)
 
+    chunk_count = max(0, len(boundaries) - 1)
+    _report_status(status_callback, f"Pre-tokenizing {chunk_count} chunks with {num_workers} workers")
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [
             executor.submit(
@@ -234,24 +249,59 @@ def train(
             )
             for begin, end in zip(boundaries, boundaries[1:])
         ]
-        token_seq_counter = merge_counter(future.result() for future in as_completed(futures))
+        with tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc="Pre-tokenizing",
+            unit="chunk",
+            dynamic_ncols=True,
+            mininterval=0.5,
+            disable=not show_progress,
+        ) as completed_futures:
+            token_seq_counter = merge_counter(future.result() for future in completed_futures)
 
+    unique_word_count = len(token_seq_counter)
+    _report_status(status_callback, f"Building the pair cache from {unique_word_count:,} unique pre-tokens")
     merges: list[Pair] = []
-
     pair_counts: Counter[Pair] = Counter()
     pair_to_words: defaultdict[Pair, set[Word]] = defaultdict(set)
-    for word, count in token_seq_counter.items():
-        _add_word_to_cache(word, count, pair_counts, pair_to_words)
+    with tqdm(
+        token_seq_counter.items(),
+        total=unique_word_count,
+        desc="Building pair cache",
+        unit="word",
+        dynamic_ncols=True,
+        mininterval=0.5,
+        disable=not show_progress,
+    ) as words:
+        for word, count in words:
+            _add_word_to_cache(word, count, pair_counts, pair_to_words)
 
-    for _ in range(len_init_vocab, vocab_size):
-        if not pair_counts:
-            break
+    target_merge_count = vocab_size - len_init_vocab
+    _report_status(status_callback, f"Learning up to {target_merge_count:,} BPE merges")
+    stopped_early = False
+    with tqdm(
+        range(len_init_vocab, vocab_size),
+        total=target_merge_count,
+        desc="Learning BPE merges",
+        unit="merge",
+        dynamic_ncols=True,
+        mininterval=0.5,
+        disable=not show_progress,
+    ) as merge_steps:
+        for _ in merge_steps:
+            if not pair_counts:
+                stopped_early = True
+                break
 
-        max_pair = max(pair_counts.items(), key=lambda item: (item[1], item[0]))[0]
+            max_pair = max(pair_counts.items(), key=lambda item: (item[1], item[0]))[0]
 
-        vocab[len(vocab)] = max_pair[0] + max_pair[1]
-        merges.append(max_pair)
+            vocab[len(vocab)] = max_pair[0] + max_pair[1]
+            merges.append(max_pair)
+            apply_merge(token_seq_counter, max_pair, pair_counts, pair_to_words)
+            merge_steps.set_postfix(vocab=len(vocab), active_pairs=len(pair_counts), refresh=False)
 
-        apply_merge(token_seq_counter, max_pair, pair_counts, pair_to_words)
-
+    if stopped_early:
+        _report_status(status_callback, "No mergeable pairs remain; stopped before reaching the target vocabulary size")
+    _report_status(status_callback, f"Learned {len(merges):,} merges; final vocabulary size is {len(vocab):,}")
     return vocab, merges
