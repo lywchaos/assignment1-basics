@@ -22,6 +22,7 @@ import os
 import platform
 import pstats
 import shlex
+import signal
 import subprocess
 import sys
 import threading
@@ -30,6 +31,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, UTC
 from importlib import metadata
 from pathlib import Path
+from types import FrameType
 from typing import Any, cast
 
 import psutil
@@ -50,6 +52,128 @@ PROFILE_FILENAME = "train.cprof"
 PROFILE_SUMMARY_FILENAME = "train.cprof.txt"
 PY_SPY_FILENAME = "train.py-spy.svg"
 TRAIN_LOG_FILENAME = "train.log"
+CHILD_TERMINATE_TIMEOUT_SECONDS = 2.0
+CHILD_KILL_TIMEOUT_SECONDS = 2.0
+
+
+class _SignalExit(SystemExit):
+    """Carry the terminating signal while preserving the conventional exit code."""
+
+    def __init__(self, signum: int) -> None:
+        self.signum = signum
+        super().__init__(128 + signum)
+
+
+class _ProcessTreeSignalHandler:
+    """Stop descendant processes before turning termination signals into exceptions."""
+
+    def __init__(
+        self,
+        terminate_timeout_seconds: float = CHILD_TERMINATE_TIMEOUT_SECONDS,
+        kill_timeout_seconds: float = CHILD_KILL_TIMEOUT_SECONDS,
+    ) -> None:
+        self._owner_pid = os.getpid()
+        self._terminate_timeout_seconds = terminate_timeout_seconds
+        self._kill_timeout_seconds = kill_timeout_seconds
+        self._previous_handlers: dict[signal.Signals, Any] = {}
+        self._handling_signal = False
+
+    def __enter__(self) -> _ProcessTreeSignalHandler:
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("signal handlers can only be installed from the main thread")
+
+        handled_signals = [signal.SIGINT]
+        if hasattr(signal, "SIGTERM"):
+            handled_signals.append(signal.SIGTERM)
+
+        try:
+            for signum in handled_signals:
+                self._previous_handlers[signum] = signal.getsignal(signum)
+                signal.signal(signum, self)
+        except BaseException:
+            self._restore_handlers()
+            raise
+        return self
+
+    def __exit__(self, _exc_type: Any, _exc_value: Any, _traceback: Any) -> None:
+        self._restore_handlers()
+
+    def _restore_handlers(self) -> None:
+        for signum, previous_handler in self._previous_handlers.items():
+            signal.signal(signum, previous_handler)
+        self._previous_handlers.clear()
+
+    def _forward_signal_from_forked_child(self, signum: int) -> None:
+        # A fork-based ProcessPoolExecutor worker inherits this object. Restore
+        # normal signal behavior there; only the CLI parent owns tree cleanup.
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    @staticmethod
+    def _is_resource_tracker(process: psutil.Process) -> bool:
+        """Leave multiprocessing's signal-ignoring helper to interpreter shutdown."""
+        try:
+            return any("multiprocessing.resource_tracker" in argument for argument in process.cmdline())
+        except psutil.Error:
+            return False
+
+    def stop_descendants(self, *, force: bool = False) -> None:
+        """Terminate all worker descendants, escalating to kill when necessary."""
+        try:
+            descendants = [
+                process
+                for process in psutil.Process(self._owner_pid).children(recursive=True)
+                if not self._is_resource_tracker(process)
+            ]
+        except psutil.Error as error:
+            logger.warning("Could not enumerate child processes during shutdown: {}", error)
+            return
+        if not descendants:
+            return
+
+        action = "Killing" if force else "Terminating"
+        logger.warning("{} {} child process(es)", action, len(descendants))
+        for process in descendants:
+            try:
+                process.kill() if force else process.terminate()
+            except psutil.NoSuchProcess:
+                continue
+            except psutil.Error as error:
+                logger.warning("Could not stop child process {}: {}", process.pid, error)
+
+        wait_timeout = self._kill_timeout_seconds if force else self._terminate_timeout_seconds
+        _, alive = psutil.wait_procs(descendants, timeout=wait_timeout)
+        if alive and not force:
+            logger.warning("{} child process(es) did not terminate in time; killing them", len(alive))
+            for process in alive:
+                try:
+                    process.kill()
+                except psutil.NoSuchProcess:
+                    continue
+                except psutil.Error as error:
+                    logger.warning("Could not kill child process {}: {}", process.pid, error)
+            _, alive = psutil.wait_procs(alive, timeout=self._kill_timeout_seconds)
+
+        if alive:
+            logger.error("{} child process(es) are still alive after forced shutdown", len(alive))
+
+    def __call__(self, signum: int, _frame: FrameType | None) -> None:
+        if os.getpid() != self._owner_pid:
+            self._forward_signal_from_forked_child(signum)
+            return
+
+        force = self._handling_signal
+        self._handling_signal = True
+        signal_name = signal.Signals(signum).name
+        if force:
+            logger.warning("Received {} again; forcing child-process shutdown", signal_name)
+        else:
+            logger.warning("Received {}; stopping child processes", signal_name)
+        self.stop_descendants(force=force)
+
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        raise _SignalExit(signum)
 
 
 def _gpt2_bytes_to_unicode() -> dict[int, str]:
@@ -723,14 +847,31 @@ def train_tinystories(
             worklog["status"] = "completed"
     except BaseException as error:
         failed_phase = worklog["phase"]
-        worklog["phase"] = "failed"
-        worklog["status"] = "failed"
-        worklog["error"] = {
-            "type": type(error).__name__,
-            "message": str(error),
-            "phase": failed_phase,
-        }
-        logger.exception("Training failed during phase '{}': {}", failed_phase, error)
+        interruption_signal: signal.Signals | None = None
+        if isinstance(error, KeyboardInterrupt):
+            interruption_signal = signal.SIGINT
+        elif isinstance(error, _SignalExit):
+            interruption_signal = signal.Signals(error.signum)
+
+        if interruption_signal is not None:
+            worklog["phase"] = "interrupted"
+            worklog["status"] = "interrupted"
+            worklog["error"] = {
+                "type": type(error).__name__,
+                "message": f"Interrupted by {interruption_signal.name}",
+                "phase": failed_phase,
+                "signal": interruption_signal.name,
+            }
+            logger.warning("Training interrupted by {} during phase '{}'", interruption_signal.name, failed_phase)
+        else:
+            worklog["phase"] = "failed"
+            worklog["status"] = "failed"
+            worklog["error"] = {
+                "type": type(error).__name__,
+                "message": str(error),
+                "phase": failed_phase,
+            }
+            logger.exception("Training failed during phase '{}': {}", failed_phase, error)
         raise
     finally:
         worklog["finished_at_utc"] = _utc_timestamp()
@@ -817,18 +958,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     special_tokens = args.special_token if args.special_token is not None else DEFAULT_SPECIAL_TOKENS
 
+    signal_handler = _ProcessTreeSignalHandler()
     try:
-        worklog = train_tinystories(
-            input_path=args.input_path,
-            output_dir=args.output_dir,
-            vocab_size=args.vocab_size,
-            special_tokens=special_tokens,
-            profile_mode=args.profile_mode,
-            hash_input=args.hash_input,
-            memory_sample_interval=args.memory_sample_interval,
-            max_documents=args.max_documents,
-            show_progress=args.show_progress,
-        )
+        with signal_handler:
+            worklog = train_tinystories(
+                input_path=args.input_path,
+                output_dir=args.output_dir,
+                vocab_size=args.vocab_size,
+                special_tokens=special_tokens,
+                profile_mode=args.profile_mode,
+                hash_input=args.hash_input,
+                memory_sample_interval=args.memory_sample_interval,
+                max_documents=args.max_documents,
+                show_progress=args.show_progress,
+            )
+    except KeyboardInterrupt:
+        signal_handler.stop_descendants(force=True)
+        logger.warning("Training interrupted by Ctrl-C")
+        return 128 + signal.SIGINT
+    except _SignalExit as error:
+        signal_handler.stop_descendants(force=True)
+        logger.warning("Training interrupted by {}", signal.Signals(error.signum).name)
+        return 128 + error.signum
     except Exception as error:
         logger.error("Training failed: {}", error)
         return 1

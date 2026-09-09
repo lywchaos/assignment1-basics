@@ -18,3 +18,10 @@
   (e.g. "要我直接改吗？").
 - Exception: agent-owned scratch files (notes, this `AGENTS.md`) may be edited
   when asked.
+
+## Test organization
+
+- Keep the course-provided test suite in `tests/` separate from tests added for
+  this repository's own regressions and tooling.
+- Put repository-authored tests in `project_tests/`. Do not add files under
+  `tests/` unless the user explicitly asks to modify the course test suite.
