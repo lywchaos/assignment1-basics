@@ -1,0 +1,61 @@
+# cProfile covers the main process only. ProcessPoolExecutor workers are not included.
+# Use py-spy --subprocesses for a process-tree profile.
+
+         391128698 function calls (390696738 primitive calls) in 177.887 seconds
+
+   Ordered by: cumulative time
+   List reduced from 646 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+  691/239    0.041    0.000  342.100    1.431 threading.py:641(wait)
+  693/239    0.289    0.000  173.126    0.724 threading.py:327(wait)
+        1    0.000    0.000  116.400  116.400 _base.py:646(__exit__)
+        1    0.000    0.000  116.400  116.400 process.py:837(shutdown)
+      2/1    0.001    0.000  116.399  116.399 threading.py:1058(join)
+      2/1    0.000    0.000  116.399  116.399 {method 'join' of '_thread._ThreadHandle' objects}
+        1    0.000    0.000  116.396  116.396 process.py:330(run)
+        1    0.000    0.000  116.396  116.396 process.py:549(join_executor_internals)
+        1    0.000    0.000  116.383  116.383 process.py:553(_join_executor_internals)
+       15    0.000    0.000  116.193    7.746 util.py:197(__call__)
+        1    0.000    0.000  116.192  116.192 queues.py:145(join_thread)
+        1    0.000    0.000  116.192  116.192 queues.py:212(_finalize_join)
+    69687    0.020    0.000  116.123    0.002 std.py:1160(__iter__)
+        9    0.000    0.000  116.061   12.896 p9_bpe_tokenizer_training.py:261(<genexpr>)
+       16    0.016    0.001  116.054    7.253 process.py:405(wait_result_broken_or_wakeup)
+12641/11801   39.229    0.003   54.628    0.005 {built-in method builtins.max}
+369218707   15.434    0.000   15.434    0.000 p9_bpe_tokenizer_training.py:297(<lambda>)
+  662/661    0.030    0.000    7.725    0.012 p9_train_bpe_tinystories.py:314(_sample)
+      661    0.118    0.000    7.613    0.012 __init__.py:951(children)
+      661    0.299    0.000    7.084    0.011 __init__.py:251(_ppid_map)
+845164/422582    0.358    0.000    5.275    0.000 _psosx.py:343(wrapper)
+   407611    0.152    0.000    4.818    0.000 _psosx.py:411(ppid)
+427352/422582    0.427    0.000    4.581    0.000 _common.py:367(wrapper)
+     9743    0.302    0.000    4.117    0.000 p9_bpe_tokenizer_training.py:199(apply_merge)
+   417812    0.353    0.000    4.084    0.000 _psosx.py:370(_get_kinfo_proc)
+   417812    3.800    0.000    3.800    0.000 {built-in method psutil._psutil_osx.proc_kinfo_oneshot}
+   337713    0.780    0.000    2.003    0.000 p9_bpe_tokenizer_training.py:187(_add_word_to_cache)
+      661    0.002    0.000    1.777    0.003 __init__.py:1482(pids)
+      661    0.004    0.000    1.742    0.003 _psosx.py:319(pids)
+      661    1.738    0.003    1.738    0.003 {built-in method psutil._psutil_osx.pids}
+   277780    0.622    0.000    1.388    0.000 p9_bpe_tokenizer_training.py:165(_remove_word_from_cache)
+   615493    0.242    0.000    1.147    0.000 p9_bpe_tokenizer_training.py:160(_count_word_pairs)
+        1    0.001    0.001    1.112    1.112 p9_bpe_tokenizer_training.py:131(merge_counter)
+   625238    0.278    0.000    0.918    0.000 __init__.py:599(__init__)
+   625246    0.216    0.000    0.746    0.000 __init__.py:673(update)
+   277780    0.475    0.000    0.716    0.000 p9_bpe_tokenizer_training.py:146(merge_word)
+       41    0.003    0.000    0.628    0.015 connection.py:1134(wait)
+       41    0.002    0.000    0.622    0.015 selectors.py:385(select)
+       41    0.620    0.015    0.620    0.015 {method 'poll' of 'select.poll' objects}
+636297/636295    0.155    0.000    0.309    0.000 {built-in method builtins.isinstance}
+  1932449    0.302    0.000    0.302    0.000 {method 'get' of 'dict' objects}
+     5431    0.003    0.000    0.234    0.000 __init__.py:313(__init__)
+     5431    0.022    0.000    0.232    0.000 __init__.py:316(_init)
+      2/1    0.000    0.000    0.231    0.231 p9_bpe_tokenizer_training.py:220(train)
+  3910722    0.225    0.000    0.225    0.000 {built-in method builtins.len}
+  1454313    0.224    0.000    0.225    0.000 {method 'add' of 'set' objects}
+    10201    0.010    0.000    0.222    0.000 _psosx.py:474(create_time)
+  1351624    0.200    0.000    0.200    0.000 {method 'remove' of 'set' objects}
+  1785280    0.196    0.000    0.196    0.000 {method 'append' of 'list' objects}
+        8    0.000    0.000    0.190    0.024 process.py:142(join)
+
+
