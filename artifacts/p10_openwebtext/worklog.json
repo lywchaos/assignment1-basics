@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "status": "running",
-  "phase": "training",
-  "started_at_utc": "2026-09-08T13:49:15.527Z",
-  "finished_at_utc": null,
-  "elapsed_seconds": null,
+  "status": "failed",
+  "phase": "failed",
+  "started_at_utc": "2026-09-10T02:27:04.080Z",
+  "finished_at_utc": "2026-09-10T02:27:55.578Z",
+  "elapsed_seconds": 51.49944880907424,
   "input": {
     "source_path": "data/owt_train.txt",
-    "source_resolved_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt",
-    "training_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt",
-    "training_resolved_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt",
+    "source_resolved_path": "/home/developer/workspace/assignment1-basics/data/owt_train.txt",
+    "training_path": "/home/developer/workspace/assignment1-basics/data/owt_train.txt",
+    "training_resolved_path": "/home/developer/workspace/assignment1-basics/data/owt_train.txt",
     "source_size_bytes": 11920511059,
     "training_size_bytes": 11920511059,
-    "source_modified_at": "2026-09-02T09:08:08+00:00",
-    "training_modified_at": "2026-09-02T09:08:08+00:00",
+    "source_modified_at": "2026-09-10T01:26:55+00:00",
+    "training_modified_at": "2026-09-10T01:26:55+00:00",
     "source_sha256": null,
     "training_sha256": null,
     "sha256_requested": false,
@@ -36,8 +36,8 @@
   },
   "serialization": {
     "format": "GPT-2 byte-level BPE; assignment-compatible headerless merges.txt",
-    "vocab_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/vocab.json",
-    "merges_path": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/merges.txt",
+    "vocab_path": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/vocab.json",
+    "merges_path": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/merges.txt",
     "vocab_size_bytes": null,
     "merges_size_bytes": null
   },
@@ -46,29 +46,41 @@
     "requested": "none",
     "cprofile_scope": null,
     "artifacts": [],
-    "recommended_py_spy_command": "py-spy record --subprocesses --output /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/train.py-spy.svg -- uv run python -m cs336_basics.p9_train_bpe_tinystories --input-path /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/data/owt_train.txt --output-dir /Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext --vocab-size 32000 --profile none --special-token '<|endoftext|>'"
+    "recommended_py_spy_command": "py-spy record --subprocesses --output /home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/train.py-spy.svg -- uv run python -m cs336_basics.p9_train_bpe_tinystories --input-path /home/developer/workspace/assignment1-basics/data/owt_train.txt --output-dir /home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext --vocab-size 32000 --profile none --special-token '<|endoftext|>'"
   },
   "environment": {
-    "python_version": "3.13.5",
-    "python_executable": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/.venv/bin/python3",
-    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
-    "cpu_count": 8,
+    "python_version": "3.12.3",
+    "python_executable": "/home/developer/workspace/assignment1-basics/.venv/bin/python3",
+    "platform": "Linux-6.8.0-124-generic-x86_64-with-glibc2.39",
+    "cpu_count": 16,
     "cs336_basics_version": "26.0.0",
     "git": {
       "available": true,
-      "commit": "a7de29a2a7d8211876d4dcdd4477b2a99b0ed394",
-      "dirty": true
+      "commit": "8066e3a0ba8f735cf3fc46b0b3e806fae710f6ae",
+      "dirty": false
     }
   },
   "timings_seconds": {
-    "input_metadata": 0.00024383299751207232
+    "input_metadata": 0.00012267311103641987
   },
-  "resources": null,
+  "resources": {
+    "sample_interval_seconds": 0.25,
+    "samples": 25,
+    "peak_parent_rss_bytes": 33894400,
+    "peak_child_rss_bytes": 30421790720,
+    "peak_total_rss_bytes": 30447353856,
+    "peak_total_rss_gib": 28.356,
+    "measurement": "sampled sum of RSS for the parent and descendants"
+  },
   "artifacts": {
-    "vocab": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/vocab.json",
-    "merges": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/merges.txt",
-    "worklog": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/worklog.json",
-    "log": "/Users/liangyuanwei/workspace/project-assignment1-basics/assignment1-basics/artifacts/p10_openwebtext/train.log"
+    "vocab": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/vocab.json",
+    "merges": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/merges.txt",
+    "worklog": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/worklog.json",
+    "log": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/train.log"
   },
-  "error": null
+  "error": {
+    "type": "BrokenProcessPool",
+    "message": "A process in the process pool was terminated abruptly while the future was running or pending.",
+    "phase": "training"
+  }
 }
