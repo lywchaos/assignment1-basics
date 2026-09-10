@@ -1,7 +1,7 @@
 import os
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from typing import BinaryIO
 
 import regex
@@ -12,6 +12,9 @@ Word = tuple[bytes, ...]
 Pair = tuple[bytes, bytes]
 WordCounts = dict[Word, int]
 StatusCallback = Callable[[str], None]
+
+DEFAULT_NUM_WORKERS = min(os.cpu_count() or 1, 4)
+DEFAULT_MAX_CHUNK_MIB = 64
 
 
 def _report_status(callback: StatusCallback | None, message: str) -> None:
@@ -56,6 +59,7 @@ def find_chunk_boundaries(
     mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
     overlap_size = max(len(token) for token in split_special_tokens) - 1
 
+    hit_eof = False
     for bi in range(1, len(chunk_boundaries) - 1):
         initial_position = chunk_boundaries[bi]
         scan_position = initial_position
@@ -68,6 +72,7 @@ def find_chunk_boundaries(
             # If EOF, this boundary should be at the end of the file
             if mini_chunk == b"":
                 chunk_boundaries[bi] = file_size
+                hit_eof = True
                 break
 
             search_chunk = carry + mini_chunk
@@ -82,6 +87,12 @@ def find_chunk_boundaries(
                     carry = search_chunk[-overlap_size:]
                 scan_position += len(mini_chunk)
                 continue
+            break
+
+        if hit_eof:
+            # No delimiter at or after this guess means there is none for any
+            # later (monotonically increasing) guess either; skip the rescan.
+            chunk_boundaries[bi:] = [file_size] * len(chunk_boundaries[bi:])
             break
 
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
@@ -224,41 +235,85 @@ def train(
     *,
     show_progress: bool = False,
     status_callback: StatusCallback | None = None,
+    num_workers: int | None = None,
+    max_chunk_mib: int = DEFAULT_MAX_CHUNK_MIB,
 ) -> tuple[dict[int, bytes], list[Pair]]:
     vocab = init_vocab(special_tokens)
     len_init_vocab = len(vocab)
     if vocab_size < len_init_vocab:
         raise ValueError(f"vocab_size must be at least {len_init_vocab}")
 
-    num_workers = os.cpu_count() or 1
-    _report_status(status_callback, f"Locating safe chunk boundaries for {num_workers} workers")
+    if num_workers is None:
+        num_workers = DEFAULT_NUM_WORKERS
+    if num_workers <= 0:
+        raise ValueError("num_workers must be positive")
+    if max_chunk_mib <= 0:
+        raise ValueError("max_chunk_mib must be positive")
+
+    max_chunk_bytes = max_chunk_mib * 1024 * 1024
+    input_size = os.path.getsize(input_path)
+    desired_num_chunks = max(1, (input_size + max_chunk_bytes - 1) // max_chunk_bytes)
+    _report_status(
+        status_callback,
+        f"Locating safe boundaries for {desired_num_chunks} target chunks ({max_chunk_mib} MiB each)",
+    )
     special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
     with open(input_path, "rb") as file:
-        boundaries = find_chunk_boundaries(file, num_workers, special_tokens_bytes)
+        boundaries = find_chunk_boundaries(file, desired_num_chunks, special_tokens_bytes)
 
     chunk_count = max(0, len(boundaries) - 1)
-    _report_status(status_callback, f"Pre-tokenizing {chunk_count} chunks with {num_workers} workers")
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = [
-            executor.submit(
-                _pretokenize_chunk,
-                input_path,
-                begin,
-                end,
-                special_tokens,
+    worker_count = min(num_workers, chunk_count) if chunk_count else 1
+    largest_chunk_mib = max((end - begin for begin, end in zip(boundaries, boundaries[1:])), default=0) / 2**20
+    _report_status(
+        status_callback,
+        f"Pre-tokenizing {chunk_count} chunks with {worker_count} workers "
+        f"(target {max_chunk_mib} MiB, largest aligned chunk {largest_chunk_mib:.1f} MiB)",
+    )
+    token_seq_counter: Counter[Word] = Counter()
+    with ProcessPoolExecutor(max_workers=worker_count) as executor:
+        pending: set[Future[WordCounts]] = set()
+        chunks = iter(zip(boundaries, boundaries[1:]))
+        for _ in range(worker_count):
+            try:
+                begin, end = next(chunks)
+            except StopIteration:
+                break
+            pending.add(
+                executor.submit(
+                    _pretokenize_chunk,
+                    input_path,
+                    begin,
+                    end,
+                    special_tokens,
+                )
             )
-            for begin, end in zip(boundaries, boundaries[1:])
-        ]
+
         with tqdm(
-            as_completed(futures),
-            total=len(futures),
+            total=chunk_count,
             desc="Pre-tokenizing",
             unit="chunk",
             dynamic_ncols=True,
             mininterval=0.5,
             disable=not show_progress,
-        ) as completed_futures:
-            token_seq_counter = merge_counter(future.result() for future in completed_futures)
+        ) as progress:
+            while pending:
+                completed, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    token_seq_counter.update(future.result())
+                    progress.update(1)
+                    try:
+                        begin, end = next(chunks)
+                    except StopIteration:
+                        continue
+                    pending.add(
+                        executor.submit(
+                            _pretokenize_chunk,
+                            input_path,
+                            begin,
+                            end,
+                            special_tokens,
+                        )
+                    )
 
     unique_word_count = len(token_seq_counter)
     _report_status(status_callback, f"Building the pair cache from {unique_word_count:,} unique pre-tokens")

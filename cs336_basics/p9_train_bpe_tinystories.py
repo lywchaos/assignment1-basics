@@ -38,7 +38,7 @@ import psutil
 from loguru import logger
 from tqdm.auto import tqdm
 
-from cs336_basics.p9_bpe_tokenizer_training import train
+from cs336_basics.p9_bpe_tokenizer_training import DEFAULT_MAX_CHUNK_MIB, DEFAULT_NUM_WORKERS, train
 
 Merge = tuple[bytes, bytes]
 
@@ -541,15 +541,17 @@ def _run_train(
     profile_path: Path | None,
     profile_summary_path: Path | None,
     show_progress: bool,
+    num_workers: int,
+    max_chunk_mib: int,
 ) -> tuple[dict[int, bytes], list[Merge]]:
+    train_kwargs = {
+        "show_progress": show_progress,
+        "status_callback": _log_train_status,
+        "num_workers": num_workers,
+        "max_chunk_mib": max_chunk_mib,
+    }
     if profile_mode == "none":
-        return train(
-            input_path,
-            vocab_size,
-            special_tokens,
-            show_progress=show_progress,
-            status_callback=_log_train_status,
-        )
+        return train(input_path, vocab_size, special_tokens, **train_kwargs)
     if profile_mode != "cprofile":
         raise ValueError(f"unsupported profile mode: {profile_mode!r}")
     if profile_path is None or profile_summary_path is None:
@@ -558,13 +560,7 @@ def _run_train(
     profiler = cProfile.Profile()
     profiler.enable()
     try:
-        return train(
-            input_path,
-            vocab_size,
-            special_tokens,
-            show_progress=show_progress,
-            status_callback=_log_train_status,
-        )
+        return train(input_path, vocab_size, special_tokens, **train_kwargs)
     finally:
         profiler.disable()
         _write_profile_artifacts(profiler, profile_path, profile_summary_path)
@@ -578,6 +574,8 @@ def _recommended_py_spy_command(
     special_tokens: Sequence[str],
     hash_input: bool,
     max_documents: int | None,
+    num_workers: int,
+    max_chunk_mib: int,
 ) -> str:
     command = [
         "py-spy",
@@ -599,6 +597,10 @@ def _recommended_py_spy_command(
         str(vocab_size),
         "--profile",
         "none",
+        "--num-workers",
+        str(num_workers),
+        "--max-chunk-mib",
+        str(max_chunk_mib),
     ]
     for special_token in special_tokens:
         command.extend(["--special-token", special_token])
@@ -619,6 +621,8 @@ def train_tinystories(
     memory_sample_interval: float = 0.25,
     max_documents: int | None = None,
     show_progress: bool = True,
+    num_workers: int = DEFAULT_NUM_WORKERS,
+    max_chunk_mib: int = DEFAULT_MAX_CHUNK_MIB,
 ) -> dict[str, Any]:
     """Train the tokenizer and return the worklog dictionary."""
     if vocab_size <= 0:
@@ -627,6 +631,10 @@ def train_tinystories(
         raise ValueError(f"unsupported profile mode: {profile_mode!r}")
     if max_documents is not None and max_documents <= 0:
         raise ValueError("max_documents must be positive when provided")
+    if num_workers <= 0:
+        raise ValueError("num_workers must be positive")
+    if max_chunk_mib <= 0:
+        raise ValueError("max_chunk_mib must be positive")
 
     input_path_arg = Path(input_path).expanduser()
     input_path_resolved = input_path_arg.resolve()
@@ -657,6 +665,11 @@ def train_tinystories(
         input_path_resolved,
         vocab_size,
         special_tokens_list,
+    )
+    logger.info(
+        "Pre-tokenization limits: {} workers, {} MiB target chunk size",
+        num_workers,
+        max_chunk_mib,
     )
     logger.info("Detailed log: {}", log_path)
     if show_progress:
@@ -704,6 +717,10 @@ def train_tinystories(
         "training": {
             "vocab_size_requested": vocab_size,
             "special_tokens": special_tokens_list,
+            "pretokenization": {
+                "num_workers": num_workers,
+                "max_chunk_mib": max_chunk_mib,
+            },
             "vocab_size_actual": None,
             "merge_count": None,
         },
@@ -731,6 +748,8 @@ def train_tinystories(
                 special_tokens_list,
                 hash_input,
                 max_documents,
+                num_workers,
+                max_chunk_mib,
             ),
         },
         "environment": _environment_metadata(),
@@ -811,6 +830,8 @@ def train_tinystories(
                 profile_path,
                 profile_summary_path,
                 show_progress,
+                num_workers,
+                max_chunk_mib,
             )
             timings["training"] = time.perf_counter() - train_started
             worklog["training"]["vocab_size_actual"] = len(vocab)
@@ -921,6 +942,21 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--num-workers",
+        type=_positive_int,
+        default=DEFAULT_NUM_WORKERS,
+        help="Maximum number of concurrent pre-tokenization worker processes.",
+    )
+    parser.add_argument(
+        "--max-chunk-mib",
+        type=_positive_int,
+        default=DEFAULT_MAX_CHUNK_MIB,
+        help=(
+            "Target raw input size per pre-tokenization task. Chunks align to special-token boundaries, "
+            "so a single long document can exceed this target."
+        ),
+    )
+    parser.add_argument(
         "--special-token",
         action="append",
         default=None,
@@ -971,6 +1007,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 memory_sample_interval=args.memory_sample_interval,
                 max_documents=args.max_documents,
                 show_progress=args.show_progress,
+                num_workers=args.num_workers,
+                max_chunk_mib=args.max_chunk_mib,
             )
     except KeyboardInterrupt:
         signal_handler.stop_descendants(force=True)

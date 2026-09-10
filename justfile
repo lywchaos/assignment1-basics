@@ -58,12 +58,16 @@ test-bpe *args:
 # 提交前的完整检查：静态检查 + 测试
 ci: check test
 
+# 预分词资源限制：--num-workers 是并发进程上限，--max-chunk-mib 是单个任务的原始输入上限。
+# chunk 只能切在 special token 处，因此超长单文档可能超过该目标值（见日志中的 largest aligned chunk）。
 train-bpe-tinystories:
   uv run python -m cs336_basics.p9_train_bpe_tinystories \
     --input-path data/TinyStoriesV2-GPT4-train.txt \
     --output-dir artifacts/p9_tinystories \
     --vocab-size 10000 \
     --special-token '<|endoftext|>' \
+    --num-workers 4 \
+    --max-chunk-mib 64 \
     --profile cprofile
 
 train-bpe-owt:
@@ -71,5 +75,7 @@ train-bpe-owt:
     --input-path data/owt_train.txt \
     --output-dir artifacts/p10_openwebtext \
     --vocab-size 32000 \
-    --special-token '<|endoftext|>'
+    --special-token '<|endoftext|>' \
+    --num-workers 4 \
+    --max-chunk-mib 64
 
