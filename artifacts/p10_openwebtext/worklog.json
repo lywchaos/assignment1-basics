@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "status": "failed",
-  "phase": "failed",
-  "started_at_utc": "2026-09-10T02:27:04.080Z",
-  "finished_at_utc": "2026-09-10T02:27:55.578Z",
-  "elapsed_seconds": 51.49944880907424,
+  "status": "completed",
+  "phase": "completed",
+  "started_at_utc": "2026-09-10T04:01:33.721Z",
+  "finished_at_utc": "2026-09-10T06:10:26.061Z",
+  "elapsed_seconds": 7732.340572761139,
   "input": {
     "source_path": "data/owt_train.txt",
     "source_resolved_path": "/home/developer/workspace/assignment1-basics/data/owt_train.txt",
@@ -31,22 +31,48 @@
     "special_tokens": [
       "<|endoftext|>"
     ],
-    "vocab_size_actual": null,
-    "merge_count": null
+    "pretokenization": {
+      "num_workers": 4,
+      "max_chunk_mib": 64
+    },
+    "vocab_size_actual": 32000,
+    "merge_count": 31743
   },
   "serialization": {
     "format": "GPT-2 byte-level BPE; assignment-compatible headerless merges.txt",
     "vocab_path": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/vocab.json",
     "merges_path": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/merges.txt",
-    "vocab_size_bytes": null,
-    "merges_size_bytes": null
+    "vocab_size_bytes": 631166,
+    "merges_size_bytes": 289270
   },
-  "analysis": null,
+  "analysis": {
+    "longest_token": {
+      "byte_length": 64,
+      "count": 2,
+      "tokens": [
+        {
+          "id": 25822,
+          "byte_length": 64,
+          "hex": "c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382c383c382",
+          "utf8_with_replacement": "ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ",
+          "gpt2_text": "ÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤÃĥÃĤ"
+        },
+        {
+          "id": 25836,
+          "byte_length": 64,
+          "hex": "2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d",
+          "utf8_with_replacement": "----------------------------------------------------------------",
+          "gpt2_text": "----------------------------------------------------------------"
+        }
+      ]
+    },
+    "note": "Token length is measured in raw bytes; gpt2_text is the serialized display form."
+  },
   "profiling": {
     "requested": "none",
     "cprofile_scope": null,
     "artifacts": [],
-    "recommended_py_spy_command": "py-spy record --subprocesses --output /home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/train.py-spy.svg -- uv run python -m cs336_basics.p9_train_bpe_tinystories --input-path /home/developer/workspace/assignment1-basics/data/owt_train.txt --output-dir /home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext --vocab-size 32000 --profile none --special-token '<|endoftext|>'"
+    "recommended_py_spy_command": "py-spy record --subprocesses --output /home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/train.py-spy.svg -- uv run python -m cs336_basics.p9_train_bpe_tinystories --input-path /home/developer/workspace/assignment1-basics/data/owt_train.txt --output-dir /home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext --vocab-size 32000 --profile none --num-workers 4 --max-chunk-mib 64 --special-token '<|endoftext|>'"
   },
   "environment": {
     "python_version": "3.12.3",
@@ -56,20 +82,23 @@
     "cs336_basics_version": "26.0.0",
     "git": {
       "available": true,
-      "commit": "8066e3a0ba8f735cf3fc46b0b3e806fae710f6ae",
+      "commit": "da59d0c7ebe183604502401821e9837fef017fe9",
       "dirty": false
     }
   },
   "timings_seconds": {
-    "input_metadata": 0.00012267311103641987
+    "input_metadata": 0.0001701759174466133,
+    "training": 7732.227096782066,
+    "serialization": 0.08322218107059598,
+    "analysis": 0.010896957013756037
   },
   "resources": {
     "sample_interval_seconds": 0.25,
-    "samples": 25,
-    "peak_parent_rss_bytes": 33894400,
-    "peak_child_rss_bytes": 30421790720,
-    "peak_total_rss_bytes": 30447353856,
-    "peak_total_rss_gib": 28.356,
+    "samples": 5628,
+    "peak_parent_rss_bytes": 8691167232,
+    "peak_child_rss_bytes": 1875001344,
+    "peak_total_rss_bytes": 8691167232,
+    "peak_total_rss_gib": 8.094,
     "measurement": "sampled sum of RSS for the parent and descendants"
   },
   "artifacts": {
@@ -78,9 +107,5 @@
     "worklog": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/worklog.json",
     "log": "/home/developer/workspace/assignment1-basics/artifacts/p10_openwebtext/train.log"
   },
-  "error": {
-    "type": "BrokenProcessPool",
-    "message": "A process in the process pool was terminated abruptly while the future was running or pending.",
-    "phase": "training"
-  }
+  "error": null
 }
