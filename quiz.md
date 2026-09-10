@@ -103,3 +103,66 @@ def solution() -> bytes | None:
 ### 标准答案
 
 `b'\xc0\x80'` 是一个无法解码的两字节序列：合法的双字节 UTF-8 首 byte 必须在 `0xC2` 到 `0xDF` 之间，而 `0xC0 0x80` 是被 UTF-8 禁止的 `U+0000` 过长编码（overlong encoding），因此解码时会抛出 `UnicodeDecodeError`。
+
+---
+
+## P9.a （讲义 p.9 · `train_bpe_tinystories` (a)）How much time and memory did training take? What is the longest token in the vocabulary? Does it make sense?
+
+### 回答
+
+训练用了 178 秒（2 分 58 秒，其中纯训练 177.9s），峰值进程树 RSS 4.69 GiB；词表 10,000（9,743 个 merge，含 `<|endoftext|>`）。最长 token 是 15 字节的 `Ġaccomplishment` / `Ġdisappointment` / `Ġresponsibility`，即 “ accomplishment” 这类带前导空格的完整长单词——这是合理的：它们在 TinyStories 里分别出现 1516 / 614 / 558 次，是高频词单元，而且词表里没有任何 ≥16 字节的 token，说明 10K 容量基本都花在常见词上。
+
+细节（`artifacts/p9_tinystories/worklog.json`）：
+
+- 语料 `data/TinyStoriesV2-GPT4-train.txt` 共 2,227,753,162 B（2.07 GiB）；`elapsed_seconds` 177.99 = training 177.90 + serialization 0.02 + analysis 0.001。
+- 内存 `peak_total_rss_gib` 4.689，测量方式是每 0.25s 采样 parent + descendants 的 RSS 求和；满足讲义 ≤30 min / ≤30 GB RAM。
+- 最长 token（`analysis.longest_token`，3 个并列 15B）：id 7160 `Ġaccomplishment`、id 9143 `Ġdisappointment`、id 9379 `Ġresponsibility`；次长的一批也全是整词（`Ġuncomfortable`、`Ġcompassionate`、`Ġunderstanding` 等 14B）。
+- 语料计数（`grep -oE ' (accomplishment|disappointment|responsibility)' data/TinyStoriesV2-GPT4-train.txt | sort | uniq -c`）：1516 / 614 / 558。
+- 这次运行是在 macOS（8 CPU、Python 3.13.5）上做的，worklog 里的路径是 `/Users/liangyuanwei/...`；要跟 p10 的 Linux 数字对比内存时要记得这点。
+
+## P9.b （讲义 p.10 · `train_bpe_tinystories` (b)）Profile your code. What part of the tokenizer training process takes the most time?
+
+### 回答
+
+主进程的 CPU 几乎都花在串行的 merge 循环上：每一步都用 `max()` 扫一遍全部活跃 pair 选最优（`builtins.max` 自身 39.2s），它的 key lambda 又占 15.4s（3.69 亿次调用），两者合计约 55s。预分词（worker 进程）是墙钟上的大头，但 cProfile 看不到 worker，主进程只把它记成 116.4s 的 `ProcessPoolExecutor` 收尾等待。
+
+细节（`artifacts/p9_tinystories/train.cprof.txt`，主进程 177.887s）：
+
+- `{built-in method builtins.max}`：tottime 39.2s / cumtime 54.6s / 12,641 次调用 —— 对应 `max(pair_counts.items(), key=...)`（该次训练时在 297 行，现在是 `cs336_basics/p9_bpe_tokenizer_training.py:352`）。
+- `p9_bpe_tokenizer_training.py:297(<lambda>)`：15.4s / 369,218,707 次 —— 就是上面 max 的 key 函数；9,743 步 merge 平均每步扫约 3.8 万个 pair。
+- `apply_merge` 4.1s（9,743 次），增量缓存更新 `_add_word_to_cache` cum 2.0s、`_remove_word_from_cache` cum 1.4s。
+- `ProcessPoolExecutor.__exit__` / `shutdown` / `join` cum 116.4s（占墙钟约 2/3）是在等预分词 worker；文件头也注明 “cProfile covers the main process only”，要看 worker 内部得用 `py-spy --subprocesses`。
+- 附带一点：内存采样函数 `_sample`（psutil 每 0.25s 拉一次 descendants）本身就花掉 cum 7.7s，约 4% 墙钟。
+- 结论：并行预分词已经把主要工作挪出主进程，剩下能优化的就是 merge 阶段（选 pair 的 O(活跃 pair) 扫描 + 缓存更新）。
+
+## P10.a （讲义 p.10 · `train_bpe_expts_owt` (a)）Train a byte-level BPE tokenizer on OpenWebText (vocab 32,000) and serialize it. What is the longest token in the vocabulary? Does it make sense?
+
+### 回答
+
+最长 token 是 64 字节，共 2 个：64 个连续的 `-`（id 25836）和 16 遍重复的 “ÃÂ”（id 25822，字节 `C3 83 C3 82` ×16）。这很合理：OWT 里 ≥64 个连续 `-` 的片段有 6,491 个（grep 计数），“ÃÂ” 连排 ≥16 的片段有 4,679 个，都是高频重复内容；64 字节的 token 不是随机长串，而是网页里的排版分隔线和双重编码 mojibake（脏数据）。
+
+细节（`artifacts/p10_openwebtext/worklog.json` + `train.log`）：
+
+- 元数据：语料 11.10 GiB，178 chunks（4 workers，64 MiB 目标，最大对齐 chunk 63.9 MiB）；vocab 32,000 / merges 31,743；`elapsed_seconds` 7732.34（2h08m52s），峰值 RSS 8.094 GiB，满足 ≤12 h / ≤100 GB。
+- 阶段耗时（`train.log` 时间戳）：预分词 ≈920s（12:01:33 → 12:16:53），pair cache ≈37s（6,601,892 个 unique pre-token），merge 循环 ≈6,773s（约占 88%）。
+- 64B token 的“家族”（都来自 `vocab.json`）：32 字节的 `-`×32（id 10900）、`_`×32（15947）、`=`×32（25146）、`.`×32（28585）、“ÃÂ”×8（16885），48 字节的 em-dash×16（31274）。
+- 语料侧证据：`LC_ALL=C grep -oaP '(-){64,}' data/owt_train.txt | wc -l` = 6491（≥32 个的是 13743）；`grep -oaP '(\xc3\x83\xc3\x82)' | wc -l` = 75587 个 “ÃÂ” 单元，其中 ≥16 连排 4679 个（同为 grep 计数）；em-dash×16 有 4724 个。
+
+## P10.b （讲义 p.10 · `train_bpe_expts_owt` (b)）Compare and contrast the tokenizer that you get training on TinyStories versus OpenWebText.
+
+### 回答
+
+两者用的是同一套训练流程（同一 GPT-2 预分词正则、同一 `<|endoftext|>` 特殊 token），差异只来自语料和词表上限：TinyStories 的 10K 词表基本被常见英文词填满，最长 token 才 15 字节且全是完整单词，碰到非 ASCII 的 merge 只占 0.2%；OWT 的 32K 词表在中心分布上几乎一样（平均字节长 6.34 vs 5.79、中位数都是 6），但尾部多出 47 个 ≥16 字节、9 个 ≥32 字节的 token，而且这些长 token 全是分隔线/mojibake，碰到非 ASCII 的 merge 升到 1.4%。也就是说：语料越杂，多出来的词表容量主要花在“噪声片段”上，而不是更长更细的英文词。
+
+细节（由 `vocab.json` / `merges.txt` 反解成 bytes 后统计）：
+
+| | TinyStories (10K) | OpenWebText (32K) |
+| --- | --- | --- |
+| 语料大小 | 2.07 GiB | 11.10 GiB |
+| merges 数 | 9,743 | 31,743 |
+| token 平均 / 中位字节长 | 5.79 / 6 | 6.34 / 6 |
+| p99 / 最大字节长 | 12 / 15 | 13 / 64 |
+| ≥16B / ≥32B token 数 | 0 / 0 | 47 / 9 |
+| 含非 ASCII 字节的 token | 148 | 559 |
+| 触碰非 ASCII 的 merge | 20（0.2%） | 431（1.4%） |
+| 最长 token | `Ġaccomplishment` 等 3 个英文长词 | `-`×64；“ÃÂ”×16 |
