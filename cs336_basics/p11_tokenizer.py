@@ -135,17 +135,19 @@ class Tokenizer:
                 emitted += len(part)
             buffer = buffer[emitted:]
 
-            # 2) Emit pre-tokens before the hold suffix, keeping the last match for the next chunk.
+            # 2) Emit pre-tokens before the hold suffix, keeping the last matches for the next chunk.
             safe_len = len(buffer) - hold
             if safe_len <= 0:
                 continue
-            pending = None
+            # Keep two matches: a contraction such as "'re" can be split by the slice into a
+            # separate "'" match plus the remaining letters, and only the letters would be last.
+            pending = []
             for match in regex.finditer(PAT, buffer[:safe_len]):
-                if pending is not None:
-                    yield from self._encode_pretoken(to_word(pending.group()))
-                pending = match
-            if pending is not None:
-                buffer = buffer[pending.start() :]
+                if len(pending) == 2:
+                    yield from self._encode_pretoken(to_word(pending.pop(0).group()))
+                pending.append(match)
+            if pending:
+                buffer = buffer[pending[0].start() :]
 
         yield from self.encode(buffer)
 
