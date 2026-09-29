@@ -1,0 +1,55 @@
+{
+  "steps": [
+    "sample",
+    "throughput"
+  ],
+  "tokenizers": {
+    "tinystories": {
+      "vocab_size": 10000,
+      "merge_count": 9743,
+      "special_tokens": [
+        "<|endoftext|>"
+      ]
+    },
+    "openwebtext": {
+      "vocab_size": 32000,
+      "merge_count": 31743,
+      "special_tokens": [
+        "<|endoftext|>"
+      ]
+    }
+  },
+  "sample": {
+    "tinystories_train / tinystories tokenizer": {
+      "source_bytes": 7565,
+      "token_count": 1818,
+      "bytes_per_token": 4.161166116611661
+    },
+    "owt_train / openwebtext tokenizer": {
+      "source_bytes": 31617,
+      "token_count": 6722,
+      "bytes_per_token": 4.703510859863136
+    },
+    "owt_train / tinystories tokenizer": {
+      "source_bytes": 31617,
+      "token_count": 9883,
+      "bytes_per_token": 3.1991298188809068
+    }
+  },
+  "throughput": {
+    "tinystories_train / tinystories tokenizer": {
+      "source_bytes": 8388727,
+      "token_count": 2037859,
+      "elapsed_seconds": 12.339349173009396,
+      "bytes_per_second": 679835.4501831563,
+      "pile_hours": 361.94910783245183
+    },
+    "owt_train / openwebtext tokenizer": {
+      "source_bytes": 8388703,
+      "token_count": 1910074,
+      "elapsed_seconds": 13.741394895128906,
+      "bytes_per_second": 610469.5385017757,
+      "pile_hours": 403.0763521314519
+    }
+  }
+}

@@ -166,3 +166,60 @@ def solution() -> bytes | None:
 | 含非 ASCII 字节的 token | 148 | 559 |
 | 触碰非 ASCII 的 merge | 20（0.2%） | 431（1.4%） |
 | 最长 token | `Ġaccomplishment` 等 3 个英文长词 | `-`×64；“ÃÂ”×16 |
+
+## P12.a （讲义 p.12 · `tokenizer_experiments` (a)）Sample 10 documents from TinyStories and OpenWebText. Using your previously-trained tokenizers, encode them. What is each tokenizer's compression ratio (bytes/token)?
+
+### 回答
+
+TinyStories 样本（10 篇、7,565 bytes）用 10K tokenizer 是 **4.161 bytes/token**（1,818 tokens）；OpenWebText 样本（10 篇、31,617 bytes）用 32K tokenizer 是 **4.704 bytes/token**（6,722 tokens）。
+
+细节（`artifacts/p12_tokenizer_experiments/worklog.json`，由 `uv run python -m cs336_basics.p12_tokenizer_experiments --steps sample` 生成）：
+
+- 压缩率 = `source_bytes`（样本的 UTF-8 字节数）/ `token_count`。
+- 两个 tokenizer：TS `vocab 10,000 / merges 9,743`，OWT `vocab 32,000 / merges 31,743`；special token 都是 `<|endoftext|>`。
+- 采样按 `<|endoftext|>` 切文档（分隔符保留在样本里，它本身是 1 个 token），两边都用各自的 tokenizer 编码自己的语料。
+
+## P12.b （讲义 p.12 · `tokenizer_experiments` (b)）What happens if you tokenize your OpenWebText sample with the TinyStories tokenizer?
+
+### 回答
+
+压缩率从 4.704 掉到 **3.199 bytes/token**（6,722 → 9,883 tokens，多出约 47%）。主因不是文本分布本身，而是 **tokenizer 与语料不匹配**：10K 词表只覆盖 TinyStories 的简单词汇，OWT 里的长词、专名、代码/HTML 片段和 mojibake 大量没有对应 token，只能拆成更多小片段甚至单字节。special token 这里不构成问题：两个 tokenizer 训练时用的是同一个 `<|endoftext|>`，不存在 special 集合不一致。
+
+细节：
+
+- 同一份 OWT 样本：OWT tokenizer 6,722 tokens（4.704 B/token），TS tokenizer 9,883 tokens（3.199 B/token）。
+- 这与 P10.b 的观察互为印证：语料越杂，词表尾部越多花在分隔线/mojibake 上；反过来小词表处理杂语料就更吃亏。
+
+## P12.c （讲义 p.12 · `tokenizer_experiments` (c)）Estimate the throughput of your tokenizer (bytes/second). How long would it take to tokenize the Pile dataset (825GB of text)?
+
+### 回答
+
+当前纯 Python 实现的吞吐约 **0.65 MiB/s（TS tokenizer）** 和 **0.58 MiB/s（OWT tokenizer）**；按 825 GiB 外推，Pile 需要约 **362 / 403 小时**（约 15–17 天）。
+
+细节（`worklog.json` 的 `throughput`，样本是各语料开头约 8 MiB 的完整行）：
+
+| | TinyStories (10K) | OpenWebText (32K) |
+| --- | --- | --- |
+| source_bytes | 8,388,727 | 8,388,703 |
+| token_count | 2,037,859 | 1,910,074 |
+| elapsed_seconds | 12.34 | 13.74 |
+| bytes_per_second | 679,835 | 610,470 |
+| Pile（825 GiB） | ≈ 362 h | ≈ 403 h |
+
+- 外推公式：`825 * 1024**3 / bytes_per_second / 3600`（把 825GB 视为 825 GiB；按 10^9 算会小约 7%）。
+- 两个 tokenizer 吞吐接近，OWT 稍慢是因为 31,743 merges 的 rank 表比 9,743 大，`_encode_pretoken` 每轮要多比较。
+- 瓶颈在纯 Python 的逐 pretoken merge（regex 预分词本身很快）；符合讲义对“Pile 规模会非常慢”的预期。
+
+## P12.d （讲义 p.12–13 · `tokenizer_experiments` (d)）Encode the training/development sets into uint16 NumPy arrays. Why is uint16 an appropriate choice?
+
+### 回答
+
+因为两个词表（10,000 / 32,000）都小于 `2**16 = 65,536`，token ID 又都是非负数，`uint16` 是能无损表示所有 ID 的最小整数类型：比 `uint32` 省一半空间，比 `int64` 省 3/4。实现上 ID 先收进 `array("H")`，超过 65,535 会直接 `OverflowError`，相当于顺带做了范围校验。
+
+细节：
+
+- ID 范围：TS 0–9,999，OWT 0–31,999；`uint16` 上界 65,535，余量充足。
+- 产物示例：`TinyStoriesV2-GPT4-valid.txt`（22 MB UTF-8）→ 5,465,883 tokens → `tinystories_valid_ids.npy`，dtype `uint16`、10.4 MiB（换成 `uint32` 则是 20.8 MiB）。
+- 写盘用流式 `.npy`（先写占位 header，结束时回填真实 shape），所以 12 GB 的 OWT 不会把语料和 ID 数组同时留在内存里。
+- “不会取负索引”这点也对：ID 只作为 embedding 的正索引使用；无符号类型正合适。
+- 生成全套数组：`uv run python -m cs336_basics.p12_tokenizer_experiments --steps encode-datasets`（四个语料合计约 6–7 小时，输出到 `artifacts/p12_tokenizer_experiments/`）。
