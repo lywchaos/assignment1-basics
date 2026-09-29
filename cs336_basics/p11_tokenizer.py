@@ -1,109 +1,153 @@
-"""Byte-level BPE tokenizer: encode text into token IDs and decode IDs back into text.
-
-Covers handout section 2.6 (PDF page 11, problem ``tokenizer``, 15 points).
-
-Contract from the handout:
-
-* ``encode`` pre-tokenizes the input with the same regex used during training, then applies
-  the learned merges in creation order, independently within each pre-token (no merges may
-  cross pre-token boundaries).
-* Special tokens are never split: they are matched before pre-tokenization and each maps to
-  a single ID. A special token missing from ``vocab`` has to be appended.
-* ``decode`` concatenates the bytes of the requested IDs and decodes them as UTF-8 with
-  ``errors="replace"``, since an arbitrary ID sequence need not be valid UTF-8.
-* ``encode_iterable`` has to stay correct under chunked input: the tests compare it against
-  ``encode`` on the concatenated text and cap the function's memory at 1 MB.
-
-Wire ``tests/adapters.py::get_tokenizer`` to this class, then check your work with::
-
-    uv run pytest tests/test_tokenizer.py
-"""
-
 from __future__ import annotations
 
-import os
+import json
 from collections.abc import Iterable, Iterator
 
-from cs336_basics.p9_bpe_tokenizer_training import PAT
+import regex
 
-# Encoding has to pre-tokenize exactly like training, otherwise the learned merges get
-# applied to words that never existed during training. Reuse that regex instead of copying it.
-PRETOKEN_PATTERN = PAT
-
-Merge = tuple[bytes, bytes]
-
-
-def gpt2_unicode_to_bytes() -> dict[str, int]:
-    """Return the printable-character -> byte map needed to load serialized artifacts.
-
-    ``cs336_basics/p9_train_bpe_tinystories.py`` serializes ``vocab.json`` and ``merges.txt``
-    with GPT-2's reversible byte-to-unicode encoding (``_gpt2_bytes_to_unicode``); loading
-    needs the inverse map. Either invert that function here or promote the mapping into a
-    shared module so serialization and loading cannot drift apart.
-    """
-    raise NotImplementedError("TODO(p11): build the inverse GPT-2 byte map")
+from cs336_basics.p9_bpe_tokenizer_training import (
+    PAT,
+    Word,
+    iter_pretokens,
+    merge_word,
+    split_special_tokens,
+    to_word,
+)
 
 
 class Tokenizer:
-    """BPE tokenizer built from a vocabulary and an ordered list of merges."""
-
     def __init__(
         self,
         vocab: dict[int, bytes],
-        merges: list[Merge],
+        merges: list[tuple[bytes, bytes]],
         special_tokens: list[str] | None = None,
     ) -> None:
-        """Build a tokenizer from ``vocab``, ``merges`` and optional ``special_tokens``.
+        self.vocab = vocab
+        self.merges = merges
+        self.special_tokens = special_tokens
 
-        ``vocab`` maps token IDs to raw bytes; ``merges`` is ordered by creation time, which
-        is also the order in which an encoded pre-token has to consume them.
+        next_id = max(self.vocab, default=-1) + 1
+        for special_token in special_tokens or []:
+            token_bytes = special_token.encode("utf-8")
+            if token_bytes not in self.vocab.values():
+                self.vocab[next_id] = token_bytes
+                next_id += 1
 
-        TODO(p11): store the inputs and precompute the derived state the other methods need
-        (token -> ID lookup, merge ranking, special tokens to match first). ``special_tokens``
-        must include tokens that are missing from ``vocab``: append them instead of mutating
-        the caller's dictionary.
-        """
-        raise NotImplementedError("TODO(p11): build the tokenizer state")
+        self.token_to_id: dict[bytes, int] = {token: token_id for token_id, token in self.vocab.items()}
+        self.merge_ranks: dict[tuple[bytes, bytes], int] = {pair: rank for rank, pair in enumerate(self.merges)}
 
     @classmethod
     def from_files(
         cls,
-        vocab_filepath: str | os.PathLike[str],
-        merges_filepath: str | os.PathLike[str],
+        vocab_filepath: str,
+        merges_filepath: str,
         special_tokens: list[str] | None = None,
     ) -> Tokenizer:
-        """Load a tokenizer from the artifacts written by the BPE training code.
+        # Inverse of the byte-to-unicode map the p9 serializers use for vocab.json/merges.txt.
+        byte_values = [*range(ord("!"), ord("~") + 1), *range(ord("¡"), ord("¬") + 1), *range(ord("®"), ord("ÿ") + 1)]
+        unicode_codepoints = list(byte_values)
+        next_codepoint = 0
+        for byte_value in range(256):
+            if byte_value not in byte_values:
+                byte_values.append(byte_value)
+                unicode_codepoints.append(256 + next_codepoint)
+                next_codepoint += 1
+        byte_decoder = {
+            chr(codepoint): byte_value for byte_value, codepoint in zip(byte_values, unicode_codepoints, strict=True)
+        }
 
-        TODO(p11): read ``vocab.json`` and ``merges.txt`` in the GPT-2 printable format
-        produced by ``cs336_basics/p9_train_bpe_tinystories.py::serialize_vocab`` and
-        ``serialize_merges``, convert both back to bytes, then call the constructor.
-        """
-        raise NotImplementedError("TODO(p11): load vocab.json and merges.txt")
+        with open(vocab_filepath, encoding="utf-8") as vocab_file:
+            serialized_vocab: dict[str, int] = json.load(vocab_file)
+        vocab = {
+            token_id: bytes(byte_decoder[character] for character in serialized_token)
+            for serialized_token, token_id in serialized_vocab.items()
+        }
+
+        merges: list[tuple[bytes, bytes]] = []
+        with open(merges_filepath, encoding="utf-8") as merges_file:
+            for line in merges_file:
+                fields = line.split()
+                if len(fields) != 2:
+                    continue
+                left, right = fields
+                merges.append(
+                    (
+                        bytes(byte_decoder[character] for character in left),
+                        bytes(byte_decoder[character] for character in right),
+                    )
+                )
+
+        return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> list[int]:
-        """Encode ``text`` into a list of token IDs.
+        special_tokens = self.special_tokens or []
+        special_set = set(special_tokens)
 
-        TODO(p11): split ``text`` on special tokens first (a special token always becomes one
-        ID), pre-tokenize the remaining pieces, then apply the merge list to each pre-token.
-        """
-        raise NotImplementedError("TODO(p11): encode text")
+        ret: list[int] = []
+        for part in split_special_tokens(text, special_tokens):
+            if not part:
+                continue
+            if part in special_set:
+                ret.append(self.token_to_id[part.encode("utf-8")])
+                continue
+            for word in iter_pretokens(part):
+                ret.extend(self._encode_pretoken(word))
+        return ret
+
+    def _encode_pretoken(self, word: Word) -> list[int]:
+        while True:
+            pair = min(
+                (candidate for candidate in zip(word, word[1:]) if candidate in self.merge_ranks),
+                key=self.merge_ranks.__getitem__,
+                default=None,
+            )
+            if pair is None:
+                break
+            word = merge_word(word, pair)
+        return [self.token_to_id[piece] for piece in word]
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        """Lazily yield token IDs for an iterable of strings, e.g. a file handle.
+        special_tokens = self.special_tokens or []
+        max_special_len = max((len(token) for token in special_tokens), default=0)
+        hold = max(max_special_len - 1, 0)
 
-        The memory footprint must stay constant: the caller may hand over a 5 MB file line by
-        line while the function runs under a 1 MB ``RLIMIT_AS``. Chunked input must still
-        tokenize exactly like a single ``encode`` over the concatenated text, so the chunks
-        cannot be treated as independent documents.
+        buffer = ""
+        for chunk in iterable:
+            buffer += chunk
 
-        TODO(p11): make this a generator that consumes ``iterable`` incrementally.
-        """
-        raise NotImplementedError("TODO(p11): stream encode an iterable")
+            # 1) Emit the prefix ending at the last special no future chunk can extend.
+            safe_cut = len(buffer) - hold
+            parts = split_special_tokens(buffer, special_tokens)
+            pos = 0
+            finalized_index = -1
+            for index, part in enumerate(parts):
+                if index % 2 == 1 and pos < safe_cut:
+                    finalized_index = index
+                pos += len(part)
+
+            emitted = 0
+            for index, part in enumerate(parts[: finalized_index + 1]):
+                if index % 2 == 1:
+                    yield self.token_to_id[part.encode("utf-8")]
+                else:
+                    for word in iter_pretokens(part):
+                        yield from self._encode_pretoken(word)
+                emitted += len(part)
+            buffer = buffer[emitted:]
+
+            # 2) Emit pre-tokens before the hold suffix, keeping the last match for the next chunk.
+            safe_len = len(buffer) - hold
+            if safe_len <= 0:
+                continue
+            pending = None
+            for match in regex.finditer(PAT, buffer[:safe_len]):
+                if pending is not None:
+                    yield from self._encode_pretoken(to_word(pending.group()))
+                pending = match
+            if pending is not None:
+                buffer = buffer[pending.start() :]
+
+        yield from self.encode(buffer)
 
     def decode(self, ids: list[int]) -> str:
-        """Decode a sequence of token IDs back into text.
-
-        TODO(p11): concatenate the vocabulary bytes for ``ids`` and decode UTF-8 with
-        ``errors="replace"``.
-        """
-        raise NotImplementedError("TODO(p11): decode token IDs")
+        return b"".join(self.vocab[token_id] for token_id in ids).decode("utf-8", errors="replace")
