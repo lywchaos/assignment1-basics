@@ -3,6 +3,17 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Iterator
 
+import regex
+
+from cs336_basics.p9_bpe_tokenizer_training import (
+    PAT,
+    Word,
+    iter_pretokens,
+    merge_word,
+    split_special_tokens,
+    to_word,
+)
+
 
 class Tokenizer:
     def __init__(
@@ -21,6 +32,9 @@ class Tokenizer:
             if token_bytes not in self.vocab.values():
                 self.vocab[next_id] = token_bytes
                 next_id += 1
+
+        self.token_to_id: dict[bytes, int] = {token: token_id for token_id, token in self.vocab.items()}
+        self.merge_ranks: dict[tuple[bytes, bytes], int] = {pair: rank for rank, pair in enumerate(self.merges)}
 
     @classmethod
     def from_files(
@@ -66,10 +80,74 @@ class Tokenizer:
         return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> list[int]:
-        raise NotImplementedError
+        special_tokens = self.special_tokens or []
+        special_set = set(special_tokens)
+
+        ret: list[int] = []
+        for part in split_special_tokens(text, special_tokens):
+            if not part:
+                continue
+            if part in special_set:
+                ret.append(self.token_to_id[part.encode("utf-8")])
+                continue
+            for word in iter_pretokens(part):
+                ret.extend(self._encode_pretoken(word))
+        return ret
+
+    def _encode_pretoken(self, word: Word) -> list[int]:
+        while True:
+            pair = min(
+                (candidate for candidate in zip(word, word[1:]) if candidate in self.merge_ranks),
+                key=self.merge_ranks.__getitem__,
+                default=None,
+            )
+            if pair is None:
+                break
+            word = merge_word(word, pair)
+        return [self.token_to_id[piece] for piece in word]
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        raise NotImplementedError
+        special_tokens = self.special_tokens or []
+        max_special_len = max((len(token) for token in special_tokens), default=0)
+        hold = max(max_special_len - 1, 0)
+
+        buffer = ""
+        for chunk in iterable:
+            buffer += chunk
+
+            # 1) Emit the prefix ending at the last special no future chunk can extend.
+            safe_cut = len(buffer) - hold
+            parts = split_special_tokens(buffer, special_tokens)
+            pos = 0
+            finalized_index = -1
+            for index, part in enumerate(parts):
+                if index % 2 == 1 and pos < safe_cut:
+                    finalized_index = index
+                pos += len(part)
+
+            emitted = 0
+            for index, part in enumerate(parts[: finalized_index + 1]):
+                if index % 2 == 1:
+                    yield self.token_to_id[part.encode("utf-8")]
+                else:
+                    for word in iter_pretokens(part):
+                        yield from self._encode_pretoken(word)
+                emitted += len(part)
+            buffer = buffer[emitted:]
+
+            # 2) Emit pre-tokens before the hold suffix, keeping the last match for the next chunk.
+            safe_len = len(buffer) - hold
+            if safe_len <= 0:
+                continue
+            pending = None
+            for match in regex.finditer(PAT, buffer[:safe_len]):
+                if pending is not None:
+                    yield from self._encode_pretoken(to_word(pending.group()))
+                pending = match
+            if pending is not None:
+                buffer = buffer[pending.start() :]
+
+        yield from self.encode(buffer)
 
     def decode(self, ids: list[int]) -> str:
-        raise NotImplementedError
+        return b"".join(self.vocab[token_id] for token_id in ids).decode("utf-8", errors="replace")

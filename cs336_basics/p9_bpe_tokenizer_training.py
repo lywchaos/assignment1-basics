@@ -1,6 +1,6 @@
 import os
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from typing import BinaryIO
 
@@ -99,14 +99,21 @@ def find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
-def _split_special_tokens(text: str, special_tokens: list[str]) -> list[str]:
+def split_special_tokens(text: str, special_tokens: list[str]) -> list[str]:
+    """Split text on special tokens, keeping the matched tokens themselves in the result."""
     if not special_tokens:
         return [text]
     if any(token == "" for token in special_tokens):
         raise ValueError("special_tokens must not contain empty strings")
 
     pattern = "|".join(regex.escape(token) for token in sorted(special_tokens, key=len, reverse=True))
-    return regex.split(pattern, text)
+    return regex.split(f"({pattern})", text)
+
+
+def _split_special_tokens(text: str, special_tokens: list[str]) -> list[str]:
+    """Same boundaries as split_special_tokens, with the special tokens removed."""
+    specials = set(special_tokens)
+    return [part for part in split_special_tokens(text, special_tokens) if part not in specials]
 
 
 def prepare_docs(input_path: str | os.PathLike, special_tokens: list[str]) -> list[str]:
@@ -130,11 +137,20 @@ def _pretokenize_chunk(
     return dict(counts)
 
 
+def to_word(token: str) -> Word:
+    """Convert one pre-token string to its tuple-of-single-byte-tokens form."""
+    return tuple(bytes([byte]) for byte in token.encode("utf-8"))
+
+
+def iter_pretokens(doc: str, pat: str = PAT) -> Iterator[Word]:
+    """Yield each pre-token of doc as a tuple of single-byte tokens."""
+    for match in regex.finditer(pat, doc):
+        yield to_word(match.group())
+
+
 def pretokenize(doc: str, pat: str = PAT) -> WordCounts:
     ret: Counter[Word] = Counter()
-    for match in regex.finditer(pat, doc):
-        token = match.group().encode("utf-8")
-        token_seq = tuple(bytes([byte]) for byte in token)
+    for token_seq in iter_pretokens(doc, pat):
         ret[token_seq] += 1
     return dict(ret)
 
