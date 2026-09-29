@@ -34,6 +34,7 @@ WORKLOG_FILENAME = "worklog.json"
 PILE_BYTES = 825 * 1024**3  # handout section 2.7(c): "825GB of text"
 ID_CHUNK_SIZE = 1 << 20
 NPY_HEADER_LENGTH = 128  # multiple of 64, leaves room to patch the final shape
+PROGRESS_INTERVAL_SECONDS = 30.0
 
 TINYSTORIES = "tinystories"
 OWT = "openwebtext"
@@ -139,24 +140,87 @@ def _id_chunks(token_ids: Iterator[int], chunk_size: int = ID_CHUNK_SIZE) -> Ite
         yield chunk
 
 
-def encode_dataset(tokenizer: Tokenizer, input_path: Path, output_path: Path) -> int:
+def _format_bytes(num_bytes: float) -> str:
+    if num_bytes < 1024:
+        return f"{num_bytes:.0f} B"
+    value = num_bytes
+    for unit in ("KiB", "MiB", "GiB", "TiB"):
+        value /= 1024
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+    return f"{value:.1f} PiB"
+
+
+def _format_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def encode_dataset(
+    tokenizer: Tokenizer,
+    input_path: Path,
+    output_path: Path,
+    *,
+    label: str | None = None,
+    progress_interval: float = PROGRESS_INTERVAL_SECONDS,
+) -> int:
     """Stream ``input_path`` into a ``uint16`` ``.npy`` array without loading the corpus into memory."""
+    label = label or input_path.name
+    total_bytes = input_path.stat().st_size
+    started = time.perf_counter()
+    last_report = started
+    bytes_read = 0
     total_tokens = 0
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"(d) {label}: encoding {_format_bytes(total_bytes)} -> {output_path}", flush=True)
+
     with open(output_path, "wb") as output, open(input_path, encoding="utf-8") as source:
+
+        def counting_lines() -> Iterator[str]:
+            nonlocal bytes_read
+            for line in source:
+                bytes_read += len(line.encode("utf-8"))
+                yield line
+
+        def report(force: bool = False) -> None:
+            nonlocal last_report
+            now = time.perf_counter()
+            if not force and now - last_report < progress_interval:
+                return
+            elapsed = now - started
+            rate = bytes_read / elapsed if elapsed else 0.0
+            percent = 100 * bytes_read / total_bytes if total_bytes else 100.0
+            eta = max(total_bytes - bytes_read, 0) / rate if rate else 0.0
+            print(
+                f"(d) {label}: {percent:5.1f}% ({_format_bytes(bytes_read)}/{_format_bytes(total_bytes)}), "
+                f"{total_tokens:,} tokens, {_format_bytes(rate)}/s, ETA {_format_duration(eta)}",
+                flush=True,
+            )
+            last_report = now
+
         output.write(_npy_prefix())
         output.write(_npy_header((0,)))
-        for chunk in _id_chunks(tokenizer.encode_iterable(source)):
+        for chunk in _id_chunks(tokenizer.encode_iterable(counting_lines())):
             output.write(np.asarray(chunk, dtype=np.uint16).astype("<u2", copy=False).tobytes())
             total_tokens += len(chunk)
+            if len(chunk) == ID_CHUNK_SIZE:
+                report()
         output.seek(0)
         output.write(_npy_prefix())
         output.write(_npy_header((total_tokens,)))
+        report(force=True)
     return total_tokens
 
 
 def run_sample(args: argparse.Namespace, tokenizers: dict[str, Tokenizer]) -> dict[str, dict[str, float | int]]:
     """(a) and (b): compression ratios on 10 sampled documents per corpus."""
+    print(f"(a)/(b) sampling {args.num_sample_docs} documents per corpus", flush=True)
     tinystories_text = sample_documents(args.data_dir / DATASETS["tinystories_train"][0], args.num_sample_docs)
     owt_text = sample_documents(args.data_dir / DATASETS["owt_train"][0], args.num_sample_docs)
 
@@ -166,21 +230,28 @@ def run_sample(args: argparse.Namespace, tokenizers: dict[str, Tokenizer]) -> di
         "owt_train / tinystories tokenizer": measure_compression(tokenizers[TINYSTORIES], owt_text),
     }
     for name, report in reports.items():
-        print(f"(a)/(b) {name}: {report['bytes_per_token']:.3f} bytes/token ({report['token_count']} tokens)")
+        print(
+            f"(a)/(b) {name}: {report['bytes_per_token']:.3f} bytes/token "
+            f"({report['token_count']:,} tokens from {report['source_bytes']:,} bytes)",
+            flush=True,
+        )
     return reports
 
 
 def run_throughput(args: argparse.Namespace, tokenizers: dict[str, Tokenizer]) -> dict[str, dict[str, float | int]]:
     """(c): bytes/second on a bounded text sample and the projected Pile time."""
     reports: dict[str, dict[str, float | int]] = {}
+    print(f"(c) measuring throughput on ~{args.throughput_mib} MiB per corpus", flush=True)
     for dataset_name in ("tinystories_train", "owt_train"):
         file_name, tokenizer_key = DATASETS[dataset_name]
         text = read_text_budget(args.data_dir / file_name, args.throughput_mib * 2**20)
         report = measure_throughput(tokenizers[tokenizer_key], text)
         reports[f"{dataset_name} / {tokenizer_key} tokenizer"] = report
         print(
-            f"(c) {dataset_name}: {report['bytes_per_second'] / 2**20:.2f} MiB/s, "
-            f"Pile (825GB) -> {report['pile_hours']:.0f} hours"
+            f"(c) {dataset_name}: {report['token_count']:,} tokens from {report['source_bytes']:,} bytes "
+            f"in {report['elapsed_seconds']:.2f}s -> {report['bytes_per_second'] / 2**20:.2f} MiB/s, "
+            f"Pile (825GB) -> {report['pile_hours']:.0f} hours",
+            flush=True,
         )
     return reports
 
@@ -195,7 +266,7 @@ def run_encode_datasets(
         input_path = args.data_dir / file_name
         output_path = args.output_dir / f"{dataset_name}_ids.npy"
         started = time.perf_counter()
-        token_count = encode_dataset(tokenizers[tokenizer_key], input_path, output_path)
+        token_count = encode_dataset(tokenizers[tokenizer_key], input_path, output_path, label=dataset_name)
         elapsed_seconds = time.perf_counter() - started
         reports[dataset_name] = {
             "input_path": str(input_path),
@@ -204,7 +275,11 @@ def run_encode_datasets(
             "elapsed_seconds": elapsed_seconds,
             "bytes_per_second": input_path.stat().st_size / elapsed_seconds,
         }
-        print(f"(d) {dataset_name}: {token_count} tokens -> {output_path}")
+        print(
+            f"(d) {dataset_name}: done, {token_count:,} tokens in {_format_duration(elapsed_seconds)} "
+            f"({_format_bytes(input_path.stat().st_size / elapsed_seconds)}/s) -> {output_path}",
+            flush=True,
+        )
     return reports
 
 
@@ -230,6 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"p12 tokenizer experiments: steps={', '.join(args.steps)}", flush=True)
 
     tokenizers = {
         TINYSTORIES: load_tokenizer(args.tinystories_tokenizer_dir),
@@ -248,7 +324,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     worklog_path = args.output_dir / WORKLOG_FILENAME
     worklog_path.write_text(json.dumps(worklog, indent=2) + "\n", encoding="utf-8")
-    print(f"worklog written to {worklog_path}")
+    print(f"worklog written to {worklog_path}", flush=True)
     return 0
 
 
