@@ -18,6 +18,9 @@
   (e.g. "要我直接改吗？").
 - Exception: agent-owned scratch files (notes, this `AGENTS.md`) may be edited
   when asked.
+- When scaffolding, emit only what the handout prescribes (signatures and its
+  stated behavior). Do not invent docstrings, derived state, or helper APIs;
+  mark anything that is not from the handout as your own addition.
 
 ## Test organization
 
