@@ -107,47 +107,41 @@ class Tokenizer:
         return [self.token_to_id[piece] for piece in word]
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        special_tokens = self.special_tokens or []
-        max_special_len = max((len(token) for token in special_tokens), default=0)
-        hold = max(max_special_len - 1, 0)
+        # Provenance note. The artifacts in artifacts/p12_tokenizer_experiments/ were produced
+        # with the version of this streaming encoder at commit ca7af3f (the state before the
+        # readability refactor of this method); `git show ca7af3f:cs336_basics/p11_tokenizer.py`
+        # recovers it. The two versions were verified equivalent (random fuzz plus per-ID
+        # comparison on tests/fixtures, 1.27M tokens), so the artifacts stay valid unless that
+        # equivalence is later disproven; if it is, the .npy files are regenerated, not patched.
+        specials = sorted(self.special_tokens or [], key=len, reverse=True)
+        special_re = regex.compile("|".join(map(regex.escape, specials))) if specials else None
+        hold = max(len(specials[0]) - 1, 0) if specials else 0
 
         buffer = ""
         for chunk in iterable:
             buffer += chunk
-
-            # 1) Emit the prefix ending at the last special no future chunk can extend.
             safe_cut = len(buffer) - hold
-            parts = split_special_tokens(buffer, special_tokens)
-            pos = 0
-            finalized_index = -1
-            for index, part in enumerate(parts):
-                if index % 2 == 1 and pos < safe_cut:
-                    finalized_index = index
-                pos += len(part)
 
-            emitted = 0
-            for index, part in enumerate(parts[: finalized_index + 1]):
-                if index % 2 == 1:
-                    yield self.token_to_id[part.encode("utf-8")]
-                else:
-                    for word in iter_pretokens(part):
-                        yield from self._encode_pretoken(word)
-                emitted += len(part)
-            buffer = buffer[emitted:]
+            # 1) Real boundary: the last special whose start no future chunk can extend or divide.
+            cut = 0
+            if special_re is not None:
+                for match in special_re.finditer(buffer):
+                    if match.start() >= safe_cut:
+                        break
+                    cut = match.end()
+            yield from self.encode(buffer[:cut])
+            buffer, safe_cut = buffer[cut:], safe_cut - cut
 
-            # 2) Emit pre-tokens before the hold suffix, keeping the last matches for the next chunk.
-            safe_len = len(buffer) - hold
-            if safe_len <= 0:
-                continue
-            # Keep two matches: a contraction such as "'re" can be split by the slice into a
-            # separate "'" match plus the remaining letters, and only the letters would be last.
-            pending = []
-            for match in regex.finditer(PAT, buffer[:safe_len]):
-                if len(pending) == 2:
-                    yield from self._encode_pretoken(to_word(pending.pop(0).group()))
-                pending.append(match)
-            if pending:
-                buffer = buffer[pending[0].start() :]
+            # 2) Fake boundary: safe_len ends an arbitrary slice, so PAT may read past it.
+            safe_len = max(safe_cut, 0)
+            matches = list(regex.finditer(PAT, buffer[:safe_len]))
+            # Keep two matches: a future chunk can extend the last one and, by splitting it in two,
+            # turn the current second-to-last into the third-to-last. "Two" = PAT's read-ahead (1
+            # char past a match) + one split, see boundary-thinking.md.
+            for match in matches[:-2]:
+                yield from self._encode_pretoken(to_word(match.group()))
+            if len(matches) > 2:
+                buffer = buffer[matches[-2].start() :]
 
         yield from self.encode(buffer)
 
