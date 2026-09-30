@@ -1,7 +1,8 @@
 {
   "steps": [
     "sample",
-    "throughput"
+    "throughput",
+    "encode-datasets"
   ],
   "tokenizers": {
     "tinystories": {
@@ -40,16 +41,46 @@
     "tinystories_train / tinystories tokenizer": {
       "source_bytes": 8388727,
       "token_count": 2037859,
-      "elapsed_seconds": 12.339349173009396,
-      "bytes_per_second": 679835.4501831563,
-      "pile_hours": 361.94910783245183
+      "elapsed_seconds": 12.246930720750242,
+      "bytes_per_second": 684965.6612972257,
+      "pile_hours": 359.2382050227943
     },
     "owt_train / openwebtext tokenizer": {
       "source_bytes": 8388703,
       "token_count": 1910074,
-      "elapsed_seconds": 13.741394895128906,
-      "bytes_per_second": 610469.5385017757,
-      "pile_hours": 403.0763521314519
+      "elapsed_seconds": 13.660344735253602,
+      "bytes_per_second": 614091.6032924893,
+      "pile_hours": 400.6989076993885
+    }
+  },
+  "encode-datasets": {
+    "tinystories_train": {
+      "input_path": "data/TinyStoriesV2-GPT4-train.txt",
+      "output_path": "artifacts/p12_tokenizer_experiments/tinystories_train_ids.npy",
+      "token_count": 541229347,
+      "elapsed_seconds": 3492.7828615363687,
+      "bytes_per_second": 637816.1054707189
+    },
+    "tinystories_valid": {
+      "input_path": "data/TinyStoriesV2-GPT4-valid.txt",
+      "output_path": "artifacts/p12_tokenizer_experiments/tinystories_valid_ids.npy",
+      "token_count": 5465883,
+      "elapsed_seconds": 35.15501602878794,
+      "bytes_per_second": 640096.451145775
+    },
+    "owt_train": {
+      "input_path": "data/owt_train.txt",
+      "output_path": "artifacts/p12_tokenizer_experiments/owt_train_ids.npy",
+      "token_count": 2727120452,
+      "elapsed_seconds": 20994.24902816722,
+      "bytes_per_second": 567798.8787789781
+    },
+    "owt_valid": {
+      "input_path": "data/owt_valid.txt",
+      "output_path": "artifacts/p12_tokenizer_experiments/owt_valid_ids.npy",
+      "token_count": 66401098,
+      "elapsed_seconds": 509.39193390402943,
+      "bytes_per_second": 569303.7790712964
     }
   }
 }
