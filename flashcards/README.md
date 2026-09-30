@@ -65,6 +65,7 @@ vim 里可以 `:r !<自测命令>` 直接把结果读进来对照。
 | [30](30-comparisons-need-isolated-variables.md) | 比较数字前先隔离变量；内存测状态不测噪声 | `[通用]` | p12 |
 | [31](31-package-imports-full-path.md) | 包内 import 要用完整包路径 | `[必错]` | p11 |
 | [32](32-true-vs-fake-boundary.md) | 真边界 / 假边界：切点两侧的决策各能"看到"多远 | `[通用]` | 抽象 |
+| [33](33-derived-streaming-api-contract.md) | 派生流式 API：签名之外的等价性、隐式依赖与副作用 | `[流程]` | p11 |
 
 ## 按纪律分组
 
@@ -73,6 +74,6 @@ vim 里可以 `:r !<自测命令>` 直接把结果读进来对照。
 - **表示层 / 类型**：[06](06-ord-vs-encode.md) [07](07-vocab-vs-merges.md) [10](10-mixed-token-representation.md) [11](11-bytes-int-zero-fill.md) [16](16-annotation-without-enforcement.md) [21](21-type-driven-domain-aliases.md) [29](29-decode-join-bytes-first.md)
 - **循环边界**：[05](05-loop-assumes-resource-suffices.md) [12](12-loop-drops-tail.md) [13](13-two-fixes-stacked.md) [32](32-true-vs-fake-boundary.md)
 - **规模 / 契约**：[17](17-read-whole-file-scale-wall.md) [18](18-input-contract-edge-cases.md) [19](19-quadratic-training-wall.md)
-- **分段 / 流式**：[23](23-streaming-hold-multi-char-alternative.md) [24](24-whitespace-runs-cross-chunks.md) [32](32-true-vs-fake-boundary.md)
+- **分段 / 流式**：[23](23-streaming-hold-multi-char-alternative.md) [24](24-whitespace-runs-cross-chunks.md) [32](32-true-vs-fake-boundary.md) [33](33-derived-streaming-api-contract.md)
 - **模块 / 运行**：[26](26-long-job-observability.md) [31](31-package-imports-full-path.md)
-- **工作方法**：[14](14-pure-function-deserves-asserts.md) [16](16-annotation-without-enforcement.md) [21](21-type-driven-domain-aliases.md) [22](22-incremental-cache-convergence.md) [25](25-test-green-is-not-testing.md) [26](26-long-job-observability.md) [27](27-reuse-policy-vs-primitive.md) [30](30-comparisons-need-isolated-variables.md) [00](00-meta-lessons.md)
+- **工作方法**：[14](14-pure-function-deserves-asserts.md) [16](16-annotation-without-enforcement.md) [21](21-type-driven-domain-aliases.md) [22](22-incremental-cache-convergence.md) [25](25-test-green-is-not-testing.md) [26](26-long-job-observability.md) [27](27-reuse-policy-vs-primitive.md) [30](30-comparisons-need-isolated-variables.md) [33](33-derived-streaming-api-contract.md) [00](00-meta-lessons.md)
