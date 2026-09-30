@@ -107,12 +107,10 @@ class Tokenizer:
         return [self.token_to_id[piece] for piece in word]
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        # Provenance note. The artifacts in artifacts/p12_tokenizer_experiments/ were produced
-        # with the version of this streaming encoder at commit ca7af3f (the state before the
-        # readability refactor of this method); `git show ca7af3f:cs336_basics/p11_tokenizer.py`
-        # recovers it. The two versions were verified equivalent (random fuzz plus per-ID
-        # comparison on tests/fixtures, 1.27M tokens), so the artifacts stay valid unless that
-        # equivalence is later disproven; if it is, the .npy files are regenerated, not patched.
+        # 产物出处：artifacts/p12_tokenizer_experiments/ 里的 .npy 由本方法重构前的版本产出，
+        # 即提交 ca7af3f 的状态，`git show ca7af3f:cs336_basics/p11_tokenizer.py` 可恢复。
+        # 两个版本已验证等价（随机对拍 + fixtures 逐 ID 对比，约 127 万 token），
+        # 因此除非该等价性被证伪，产物保持有效；一旦证伪，重跑产物而不是修补 .npy。
         specials = sorted(self.special_tokens or [], key=len, reverse=True)
         special_re = regex.compile("|".join(map(regex.escape, specials))) if specials else None
         hold = max(len(specials[0]) - 1, 0) if specials else 0
@@ -120,24 +118,27 @@ class Tokenizer:
         buffer = ""
         for chunk in iterable:
             buffer += chunk
-            safe_cut = len(buffer) - hold
+            # 末尾 hold 个字符可能是尚未到齐的 special，PAT 又可能越过 match 末尾再读一个字符
+            # 来做判断，所以只有 buffer[:safe_len] 才敢扫描定性，safe_len 不会为负。
+            safe_len = max(len(buffer) - hold, 0)
 
-            # 1) Real boundary: the last special whose start no future chunk can extend or divide.
-            cut = 0
+            # 1) 真边界：起点落在 safe_len 之前的 special，后续 chunk 既无法延长它、也无法把它切开。
+            # 比它更长的 special 仍可能从更靠后的位置起点开始并吞掉当前内容，所以只看起点。
+            settled = 0
             if special_re is not None:
                 for match in special_re.finditer(buffer):
-                    if match.start() >= safe_cut:
+                    if match.start() >= safe_len:
                         break
-                    cut = match.end()
-            yield from self.encode(buffer[:cut])
-            buffer, safe_cut = buffer[cut:], safe_cut - cut
+                    settled = match.end()
+            yield from self.encode(buffer[:settled])
+            buffer = buffer[settled:]
+            safe_len = max(len(buffer) - hold, 0)  # 在新 buffer 的坐标系里重新推一遍
 
-            # 2) Fake boundary: safe_len ends an arbitrary slice, so PAT may read past it.
-            safe_len = max(safe_cut, 0)
+            # 2) 假边界：safe_len 之前的内容已经定型，PAT 扫描时最多多读一个字符。
             matches = list(regex.finditer(PAT, buffer[:safe_len]))
-            # Keep two matches: a future chunk can extend the last one and, by splitting it in two,
-            # turn the current second-to-last into the third-to-last. "Two" = PAT's read-ahead (1
-            # char past a match) + one split, see boundary-thinking.md.
+            # 保留最后两个 match：后续 chunk 会让最后一个 match 继续延长；一旦这个延长把某个
+            # match 切成两个，当前的倒数第二个就会变成倒数第三个，所以倒数第二个也不能定稿。
+            # "两个" = PAT 的预读（1 个字符）+ 1 次切分，推导见 boundary-thinking.md。
             for match in matches[:-2]:
                 yield from self._encode_pretoken(to_word(match.group()))
             if len(matches) > 2:
