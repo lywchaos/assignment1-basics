@@ -1,6 +1,6 @@
 # 卡 00 · 元教训汇总
 
-两次复盘（`p7_bpe_example.py` → 卡 01-09，`p9_bpe_tokenizer_training.py` → 卡 10-22）
+三次复盘（`p7_bpe_example.py` → 卡 01-09，`p9_bpe_tokenizer_training.py` → 卡 10-22，`p11/p12` → 卡 23-26）
 的横向总结。这张不是「预测输出」型的卡，是复习时最后读的一张。
 
 ## 零号事实
@@ -14,17 +14,18 @@
 推论：**静态检查是地板，不是天花板。** 它的沉默不构成任何正确性证据 ——
 尤其当注解本身太松时（[卡 16](16-annotation-without-enforcement.md)）。
 
-## 一、七条可迁移判据
+## 一、八条可迁移判据
 
 | 纪律 | 判据 | 相关卡 |
 |---|---|---|
 | **迭代器纪律** | `zip`/`map`/生成器：数容器层数，且只读一次。要读两次以上就别用迭代器 | [01](01-zip-in-container-membership.md) [02](02-iterator-consumed-by-in.md) |
-| **聚合纪律** | 任何计数/累加，问「key 会重复吗」；任何 max，问「平票怎么办」 | [03](03-dict-comprehension-collapses-keys.md) [04](04-tiebreak-three-stages.md) [15](15-setdefault-as-counter.md) |
+| **聚合纪律** | 任何计数/累加，问「key 会重复吗」；任何 max，问「平票怎么办」 | [03](03-dict-comprehension-collapses-keys.md) [04](04-tiebreak-three-stages.md) [15](15-setdefault-as-counter.md) [28](28-encode-merge-rank-order.md) |
 | **顺序纪律** | 先算全集 → 再排序/筛选 → **最后**截断。看到 `max`，先问它的候选集有几个元素 | [04](04-tiebreak-three-stages.md) [09](09-truncate-before-filter.md) |
-| **表示层纪律** | 一个序列的元素类型是**不变量**，从产生到消费不许变；先给领域概念命名，再让函数边界维持它 | [06](06-ord-vs-encode.md) [07](07-vocab-vs-merges.md) [10](10-mixed-token-representation.md) [11](11-bytes-int-zero-fill.md) [21](21-type-driven-domain-aliases.md) |
+| **表示层纪律** | 一个序列的元素类型是**不变量**，从产生到消费不许变；先给领域概念命名，再让函数边界维持它 | [06](06-ord-vs-encode.md) [07](07-vocab-vs-merges.md) [10](10-mixed-token-representation.md) [11](11-bytes-int-zero-fill.md) [21](21-type-driven-domain-aliases.md) [29](29-decode-join-bytes-first.md) |
 | **边界纪律** | 变步长循环先列出「退出时 i 可能落在哪些值」；循环要有两个出口（目标达成 + 资源耗尽） | [05](05-loop-assumes-resource-suffices.md) [12](12-loop-drops-tail.md) [13](13-two-fixes-stacked.md) |
 | **规模纪律** | 问「测试 fixture 和生产输入差几个数量级」。一次性 read、每轮全量重算，在 fixture 上永远是对的 | [17](17-read-whole-file-scale-wall.md) [18](18-input-contract-edge-cases.md) [19](19-quadratic-training-wall.md) |
 | **增量纪律** | 先区分 source of truth 与 derived cache；按未来查询建立反向索引；先做 affected-object 级更新，再考虑 occurrence-level delta | [19](19-quadratic-training-wall.md) [22](22-incremental-cache-convergence.md) |
+| **分段纪律** | 流式/增量切分先按分支结构列出「哪一步依赖未来输入」；hold 边界由文法/协议上限决定，验证必须逐元素对拍 | [23](23-streaming-hold-multi-char-alternative.md) [24](24-whitespace-runs-cross-chunks.md) |
 
 ## 二、最大的一条：修 bug 时最容易造出「更难发现的 bug」
 
@@ -50,7 +51,9 @@ p9 的 oracle 是 `merge_word`（修复前名为 `build_new_seq`）的[三行断
 | 同一段代码时对时错 | 变步长循环**跳过了某个边界值**，边界分支时灵时不灵 | [12](12-loop-drops-tail.md) [13](13-two-fixes-stacked.md) |
 | 不报错但结果全错，值看着有规律 | API 语义误用，且误用恰好是**单射**（如 `bytes(104)` → 104 个 `\x00`） | [11](11-bytes-int-zero-fill.md) |
 | 小数据全对、大数据才错 | 聚合处的 key 冲突 / 平票 / 编码假设，玩具语料碰巧不触发 | [03](03-dict-comprehension-collapses-keys.md) [04](04-tiebreak-three-stages.md) [06](06-ord-vs-encode.md) |
-| 测试全绿但心里没底 | 测试的**盲区**：fixture 规模、参数只覆盖 happy path | [17](17-read-whole-file-scale-wall.md) [18](18-input-contract-edge-cases.md) [19](19-quadratic-training-wall.md) |
+| 测试全绿但心里没底 | 测试的**盲区**：fixture 规模、参数只覆盖 happy path，甚至限制测试空转 | [17](17-read-whole-file-scale-wall.md) [18](18-input-contract-edge-cases.md) [19](19-quadratic-training-wall.md) [25](25-test-green-is-not-testing.md) |
+| 流式/分块在小输入全对、真实输入才错 | 非局部边界没 hold 全：多字符 alternative 被截断 / 空白 run 的 lookahead | [23](23-streaming-hold-multi-char-alternative.md) [24](24-whitespace-runs-cross-chunks.md) |
+| 两个指标的差异想当然归因 | 先列不同自变量（tokenizer/规模/噪声），再看哪个量级能解释差异 | [30](30-comparisons-need-isolated-variables.md) |
 
 ## 四、工作方法层面（p9 复盘的核心收获）
 
@@ -64,3 +67,14 @@ p9 的 oracle 是 `merge_word`（修复前名为 `build_new_seq`）的[三行断
 4. **注解和实现打架时，注解通常是对的那个** —— 它记录意图，实现是手滑处
    （[卡 16](16-annotation-without-enforcement.md)）。
 5. **优化先做可证明正确的中间版本。** 保留 naive oracle，写 cache invariant，先定位 affected objects，再降低到 occurrence-level update；不要把多个未验证的优化同时带进实现（[卡 22](22-incremental-cache-convergence.md)）。
+
+## 五、p11/p12 补充：测试有效性 + 长任务可观测性
+
+1. **绿色的测试先问「它比较了什么值」**：限制类测试可能空转（generator + decorator），fixture 可能小到
+   碰不到分支，测试可能只测「不崩」不测值（[卡 25](25-test-green-is-not-testing.md)）。
+2. **流式/分块实现的正确性判据只有「与整段逐元素相等」**，不能靠「按行/按块看着合理」
+   （[卡 23](23-streaming-hold-multi-char-alternative.md)、[卡 24](24-whitespace-runs-cross-chunks.md)）。
+3. **长任务脚本要自带进度和自描述产物**：flush、周期性 percent/rate/ETA、占位 header 的 `.npy`
+   让「半成品」可识别（[卡 26](26-long-job-observability.md)）。
+4. **指标对比与资源测量先隔离变量**：把差异归因到可干预的主变量，区分算法状态与分配器噪声
+   （[卡 30](30-comparisons-need-isolated-variables.md)）。
