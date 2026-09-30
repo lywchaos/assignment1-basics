@@ -107,6 +107,7 @@ f = BytesIO(b"some data")
 - 讲义真正固定的是后续 `Tokenizer.from_files(vocab_filepath, merges_filepath, ...)` 的输入契约：`vocab` 是 `dict[int, bytes]`，`merges` 是有序的 `list[tuple[bytes, bytes]]`。
 - 可以采用 GPT-2 byte-level BPE 的可读文本格式：`vocab.json` 保存 `byte-to-unicode string -> token_id`，`merges.txt` 每行保存一个编码后的 pair，按生成顺序排列。
 - 本仓库的 loader 会把每一行按两个字段解析，因此 `merges.txt` 不写 `#version: 0.2` header；格式选择应服从实际 loader，而不是只看外部库的惯例。
+- 序列化 / runner 在 `cs336_basics/p9_train_bpe_tinystories.py`（`_gpt2_bytes_to_unicode`、`serialize_vocab`、`serialize_merges`），训练算法在 `cs336_basics/p9_bpe_tokenizer_training.py`；字节↔unicode 映射只出现在 runner 的写盘/加载边界，训练内部全程原始 `bytes`。
 - `worklog.json` 与 tokenizer 格式分离，记录输入路径 / 大小 / 可选 SHA-256、配置、git / Python 环境、各阶段耗时、parent + worker RSS 峰值、最长 token，以及 profile 文件路径。
 - `cProfile` 主要覆盖主进程；训练使用 `ProcessPoolExecutor` 时，主进程 profile 可能把 worker 等待时间显示为进程池 shutdown。要观察完整进程树，应使用 `py-spy --subprocesses`。
 
@@ -168,3 +169,65 @@ cache' = cache - contribution(old_word) + contribution(new_word)
 6. 正确性稳定后再降低更新粒度。
 
 核心判据：如果一个函数同时计算新值、判断边界、修改多个 cache，通常应该拆成纯计算函数和对称的 remove / add helper。
+
+<!-- pi-faq-record: source=session-mine -->
+## special token 在 vocab 里的位置：GPT 系放末尾，SentencePiece 系放前面
+
+### 问题
+
+special token（如 `<|endoftext|>`）追加到词表最后是业界惯例吗？本仓库 p9 训练把它们放在最前面，会不会冲突？
+
+### 结论
+
+不是唯一惯例，分两派；真正的不变量是「不重编号已有 token」：
+
+- **GPT / tiktoken / HF added tokens：放末尾（高位）**。tiktoken 实测：`r50k_base` 的 `<|endoftext|>` = 50256（最后一个）；
+  `p50k_base` 的 = 50256，但总词表 50281（后面还有 24 个 code token —— 说明「末尾」是相对当时已有词表说的）；
+  `cl100k_base` 的 5 个 special 在 100257–100276；`o200k_base` 在 199999/200018。
+  HF 的 `add_tokens` / `resize_token_embeddings` 同样追加在末尾。动机：special 往往是**事后**加的，
+  插在中间会让后续 ID 平移、已训练的 embedding 全部错位。
+- **SentencePiece / LLaMA：放前面（低位）**。LLaMA `<unk>`=0、`<s>`=1、`</s>`=2；
+  本仓库 `p9_bpe_tokenizer_training.py::init_vocab` 也是 specials 占 `0..S-1`、byte tokens 从 `S` 开始
+  （与讲义 PDF p.7 的 bpe_example 一致）。
+- 测试 helper（`tests/test_tokenizer.py::get_tokenizer_from_vocab_merges_path`）用 `vocab[len(vocab)]` 追加，
+  是因为它加载的 GPT-2 fixture 本身就把 `<|endoftext|>` 放在末尾。
+
+### 对实现的约束
+
+1. special 已存在时复用既有 ID，缺失时才分配新 ID；新 ID 不能撞已有键
+   （本仓库用 `max(vocab)+1`，对非连续词表比测试 helper 的 `len(vocab)` 更安全）。
+2. 位置本身不影响正确性：讲义只要求 special 是单个 ID、不被拆分、能 round-trip。
+3. 加载自己的 p9 artifacts 时 special 在 ID 0，`Tokenizer.__init__` 的追加分支不会触发；
+   只有加载 GPT-2 风格文件或显式新增 special 时才会走「追加到末尾」。
+
+<!-- pi-faq-record: source=session-mine -->
+## byte↔unicode 映射只存在于磁盘边界：互逆表 + 别把盘上字符串当文本
+
+### 问题
+
+`vocab.json` / `merges.txt` 里的 `Ġ`、`Ċ` 是什么？这个映射影响训练/解码吗？为什么读盘要重建它？
+
+### 结论
+
+它只是**序列化 codec**，不参与训练与解码：
+
+- 训练（`p9_bpe_tokenizer_training.py`）全程只操作原始 `bytes`；`train()` 的输入输出都是 `bytes`；
+- 解码（`Tokenizer.decode`）从 `self.vocab` 取原始 bytes、拼起来再 UTF-8 解码，映射不参与；
+- 映射只在两处出现：写盘 `serialize_vocab` / `serialize_merges`，读盘 `Tokenizer.from_files`。
+
+为什么需要它：任意 bytes（`\x00`、`\xff`、空格、换行）既不能当 JSON key，也不能按空格拼进
+`merges.txt`。GPT-2 用「1 字节 ↔ 1 个可见字符」的双射解决，例如字节 `0x20`（空格）→ `'Ġ'`（U+0120）、
+`0x0A`（换行）→ `'Ċ'`。实测：`'Ġ'.encode()` 得到 `b'\xc4\xa0'`，**不是** `b' '`。
+
+具体表怎么构造：188 个「可见的 Latin-1」字节（`!`–`~`、`¡`–`¬`、`®`–`ÿ`）映射到同码点字符；
+剩下 68 个（控制字符、空格、DEL、`\x7f`–`\xa0`、软连字符 `\xad`）按字节升序映射到
+`chr(0x100 + i)`。映射代码看起来是「三段 range + 一个补号循环」，就是这个原因。
+
+它是无损双射，读写必须严格互逆；写错一处，内存里的 token bytes 就变了，encode/decode 语义会跟着错。
+验证方法：把含 `\x00` / `\xff` / 换行 / 空格的 token 经 `serialize_vocab`+`serialize_merges` 写出，
+`Tokenizer.from_files` 读回后逐项相等。
+
+### 容易踩的坑
+
+不要把盘上的字符串喂给 `encode`：`encode(" hello")` 编码的是那个 token；`encode("Ġhello")` 会把
+`Ġ` 当成普通字符，得到完全不同的结果。映射只负责文件和内存之间搬运，永远不该出现在文本处理输入里。
